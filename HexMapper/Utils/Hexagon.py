@@ -1,5 +1,5 @@
-from HexMapper.constants.mapperConstants import Terrain, Feature 
-from HexMapper.Utils.drawer import draw_hexagon
+from constants.mapperConstants import Terrain, Feature 
+from Utils.drawer import draw_hexagon
 
 class Hexagon:
 

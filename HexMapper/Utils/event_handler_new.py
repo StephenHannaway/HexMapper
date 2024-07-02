@@ -1,6 +1,6 @@
 # event_handlers.py
-from HexMapper.constants.mapperConstants import Terrain
-from HexMapper.Utils.drawer import draw_hexagon
+from constants.mapperConstants import Terrain
+from Utils.drawer import draw_hexagon
 import tkinter as tk
 
 selected_color = Terrain.FOG.value

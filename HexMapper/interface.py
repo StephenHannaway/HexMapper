@@ -2,11 +2,11 @@
 import tkinter as tk
 from tkinter import ttk
 import sv_ttk
-from HexMapper.Utils.Hexagon import Hexagon 
-from HexMapper.Utils.ui_setup import create_main_window, add_buttons
-from HexMapper.Utils.drawer import draw_hexagon, add_ring
-from HexMapper.constants.mapperConstants import Terrain
-from HexMapper.Utils.event_handler_new import (
+from Utils.Hexagon import Hexagon 
+from Utils.ui_setup import create_main_window, add_buttons
+from Utils.drawer import draw_hexagon, add_ring
+from constants.mapperConstants import Terrain
+from Utils.event_handler_new import (
     on_button_click,
     on_button_hex,
     on_hexagon_double_click,

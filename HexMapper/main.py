@@ -1,8 +1,8 @@
 # main.py
-from HexMapper.interface import GUI
-from HexMapper.constants.mapperConstants import Terrain
-from HexMapper.Utils.Hexagon import Hexagon
-from HexMapper.Utils.event_handler_new import (
+from interface import GUI
+from constants.mapperConstants import Terrain
+from Utils.Hexagon import Hexagon
+from Utils.event_handler_new import (
     on_button_click,
     on_button_hex,
     on_hexagon_double_click,
