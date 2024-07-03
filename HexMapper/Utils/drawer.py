@@ -34,7 +34,7 @@ def handle_zoom(canvas, hexagon, width, height, factor):
         for i in range(abs(factor)):
             canvas.scale(hexagon, 1000 / 2, 900 / 2, 1/1.1, 1/1.1)
 
-def add_ring(n, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
+def add_ring_old(n, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
     results = []
     abs_n = abs(n)
     
@@ -42,3 +42,27 @@ def add_ring(n, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level
         for j in range(-abs_n, abs_n + 1):
             if i + j == abs_n or i + j == -abs_n:
                 draw_hexagon(canvas, (i, j), hex_size, fill_color, offset_x, offset_y, zoom_level)
+
+
+def add_ring(GRID, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
+    directions = [
+        (1, 0), (1, -1), (0, -1), 
+        (-1, 0), (-1, 1), (0, 1)
+    ]
+    
+    # Collect all the current hexes in the grid
+    current_hexes = set(GRID.keys())
+    
+    # Find outer hexes
+    outer_hexes = set()
+    for q, r in current_hexes:
+        for dq, dr in directions:
+            neighbor = (q + dq, r + dr)
+            if neighbor not in current_hexes:
+                outer_hexes.add(neighbor)
+
+    # Add the outer hexes to the grid
+    for q, r in outer_hexes:
+        if (q, r) not in GRID:
+            GRID[(q, r)] = draw_hexagon(canvas, (q, r), hex_size, fill_color, offset_x, offset_y, zoom_level)
+

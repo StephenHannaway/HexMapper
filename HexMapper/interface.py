@@ -63,7 +63,7 @@ class GUI():
         return hexagon
     
     def draw_hex_ring(self, n):
-        hexagon = add_ring(n, self.canvas, self.HEX_SIZE, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = add_ring(self.GRID, self.canvas, self.HEX_SIZE, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
         return hexagon
     
     def focus(self):
