@@ -1,5 +1,8 @@
 # hexagon_drawer.py
 import math
+from PIL import Image, ImageTk
+from PIL import Image, ImageTk
+from constants.mapperConstants import Feature
 
 def draw_hexagon(canvas, hex_tuple, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
     q, r = hex_tuple
@@ -34,15 +37,6 @@ def handle_zoom(canvas, hexagon, width, height, factor):
         for i in range(abs(factor)):
             canvas.scale(hexagon, 1000 / 2, 900 / 2, 1/1.1, 1/1.1)
 
-def add_ring_old(n, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
-    results = []
-    abs_n = abs(n)
-    
-    for i in range(-abs_n, abs_n + 1):
-        for j in range(-abs_n, abs_n + 1):
-            if i + j == abs_n or i + j == -abs_n:
-                draw_hexagon(canvas, (i, j), hex_size, fill_color, offset_x, offset_y, zoom_level)
-
 
 def add_ring(GRID, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_level=0, outline_color="black"):
     directions = [
@@ -65,4 +59,21 @@ def add_ring(GRID, canvas, hex_size, fill_color, offset_x=0, offset_y=0, zoom_le
     for q, r in outer_hexes:
         if (q, r) not in GRID:
             GRID[(q, r)] = draw_hexagon(canvas, (q, r), hex_size, fill_color, offset_x, offset_y, zoom_level)
+
+
+def add_img(root, canvas, hex_tuple, hex_size, offset_x=0, offset_y=0, zoom_level=0):
+    q, r = hex_tuple
+    width = canvas.winfo_width()
+    height = canvas.winfo_height()
+    
+    x_center = 1000 / 2 + hex_size * (math.sqrt(3) * (q + r / 2)) + offset_x  # Adjust width if needed
+    y_center = 900 / 2 + hex_size * (3/2 * r) + offset_y  # Adjust height if needed
+
+    image = Image.open(Feature.CITY.value)
+    resized_image = image.resize((hex_size +40, hex_size+40), Image.Resampling.LANCZOS)
+    root.img = img = ImageTk.PhotoImage(resized_image)
+    asset = canvas.create_image(x_center, y_center, anchor='center', image=img, tags='img')
+
+    print(asset)
+
 

@@ -3,27 +3,16 @@ import tkinter as tk
 from tkinter import ttk
 import sv_ttk
 from Utils.Hexagon import Hexagon 
-from Utils.ui_setup import create_main_window, add_buttons
-from Utils.drawer import draw_hexagon, add_ring
+from Utils.ui_setup import create_main_window, setup_grid
+from Utils.drawer import draw_hexagon, add_ring, add_img
 from constants.mapperConstants import Terrain
-from Utils.event_handler_new import (
-    on_button_click,
-    on_button_hex,
-    on_hexagon_double_click,
-    on_pan_start,
-    on_pan_motion,
-    on_zoom_in,
-    on_zoom_out,
-    on_resize,
-)
-
 class GUI():
-    def __init__(self, WIDTH, HEIGHT, HEX_SIZE, BACKGROUND_COLOR, GRID):
-        self.WIDTH = WIDTH
-        self.HEIGHT = HEIGHT
-        self.BACKGROUND_COLOR = BACKGROUND_COLOR
-        self.HEX_SIZE = HEX_SIZE
-        self.GRID = GRID
+    def __init__(self, WIDTH=1000, HEIGHT=900, HEX_SIZE=30, BACKGROUND_COLOR="#1e1e1e", GRID={}):
+        self.width = WIDTH
+        self.height = HEIGHT
+        self.bg_color = BACKGROUND_COLOR
+        self.hex_size = HEX_SIZE
+        self.grid = GRID
         self.zoom_level = 0
         self.pan_x = 0
         self.pan_y = 0
@@ -32,38 +21,27 @@ class GUI():
         self.selected_color = Terrain.FOG.value
 
     def create_main_window(self):
-        self.root, self.canvas = create_main_window(self.WIDTH, self.HEIGHT, self.BACKGROUND_COLOR)
+        self.root, self.canvas = create_main_window(self)
         sv_ttk.set_theme("dark")
+
+        setup_grid(self.canvas, self.hex_size, self.grid)
     
     def update_root(self):
         self.root.update()
-
-    def add_buttons(self, button_configs):
-        buttons = {}
-        for i, (text, command) in enumerate(button_configs.items()):
-            button = ttk.Button(self.root, text=text, command=command)
-            button.grid(row=i, column=1)
-            buttons[text] = button
-        return buttons
-
-    def initialize_grid(self):
-        # Function to initialize and draw the hexagon grid
-        axial_range = 5  # Example axial range for the grid
-        for q in range(-axial_range, axial_range + 1):
-            for r in range(-axial_range, axial_range + 1):
-                if -q - r >= -axial_range and -q - r <= axial_range:
-                    #canvas_location = draw_hexagon(canvas, (q, r), hex_size, width, height, Terrain.FOG.value)
-                    self.GRID[(q, r)] = Hexagon(q, r, self.HEX_SIZE, Terrain.FOG, None, self.canvas)
 
     def bind_event(self, event, command):
         self.canvas.bind(event, command)
 
     def draw_hexagon(self, q, r):
-        hexagon = draw_hexagon(self.canvas, (q, r), self.HEX_SIZE, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = draw_hexagon(self.canvas, (q, r), self.hex_size, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
         return hexagon
     
     def draw_hex_ring(self, n):
-        hexagon = add_ring(self.GRID, self.canvas, self.HEX_SIZE, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = add_ring(self.grid, self.canvas, self.hex_size, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        return hexagon
+    
+    def draw_image(self):
+        hexagon = add_img(self.root, self.canvas, (0,0), 15, offset_x=0, offset_y=0, zoom_level=0)
         return hexagon
     
     def focus(self):
@@ -71,11 +49,11 @@ class GUI():
 
     def zoom_in(self):
         self.zoom_level += 1
-        self.canvas.scale(tk.ALL, self.WIDTH / 2, self.HEIGHT / 2, 1.1, 1.1)
+        self.canvas.scale(tk.ALL, self.width / 2, self.height / 2, 1.1, 1.1)
 
     def zoom_out(self):
         self.zoom_level += -1
-        self.canvas.scale(tk.ALL, self.WIDTH / 2, self.HEIGHT / 2, 1/1.1, 1/1.1)
+        self.canvas.scale(tk.ALL, self.width / 2, self.height / 2, 1/1.1, 1/1.1)
 
     def on_button_click(color, canvas):
         pass

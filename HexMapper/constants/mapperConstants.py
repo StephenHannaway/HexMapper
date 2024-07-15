@@ -4,7 +4,7 @@ class Feature(Enum):
     RIVER = "River"
     ROAD = "Road"
     VILLAGE = "Village"
-    CITY = "City"
+    CITY = r"HexMapper\assets\akaford.png"
     FORTRESS = "Fortress"
     BRIDGE = "Bridge"
     CASTLE = "Castle"
@@ -19,7 +19,7 @@ class Feature(Enum):
 
 
 class Terrain(Enum):
-    FARM = "#4df54d"
+    FARM = "#98FB98"
     MOUNTAIN = "#829696"
     FOREST = "#00b200"
     LAKE = "#0077ff"

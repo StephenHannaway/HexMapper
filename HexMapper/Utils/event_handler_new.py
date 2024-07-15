@@ -6,16 +6,18 @@ import tkinter as tk
 selected_color = Terrain.FOG.value
 pan_data = {"x": 0, "y": 0}
 
-def on_button_click(color, gui):
+def on_button_click(gui, color):
     gui.selected_color = color
     gui.focus()
 
 def on_button_hex(gui):
-    gui.draw_hex_ring(6)
+    #gui.draw_hex_ring(6)
+    gui.draw_image()
     gui.focus()
 
 def on_hexagon_double_click(gui):
     item = gui.canvas.find_withtag("current")
+    print(item)
     if item:
         gui.canvas.itemconfig(item, fill=gui.selected_color)
 
