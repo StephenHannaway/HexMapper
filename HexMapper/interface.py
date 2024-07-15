@@ -7,24 +7,27 @@ from Utils.ui_setup import create_main_window, setup_grid
 from Utils.drawer import draw_hexagon, add_ring, add_img
 from constants.mapperConstants import Terrain
 class GUI():
-    def __init__(self, WIDTH=1000, HEIGHT=900, HEX_SIZE=30, BACKGROUND_COLOR="#1e1e1e", GRID={}):
+    def __init__(self, WIDTH=1000, HEIGHT=900, HEX_SIZE=40, BACKGROUND_COLOR="#1e1e1e"):
         self.width = WIDTH
         self.height = HEIGHT
         self.bg_color = BACKGROUND_COLOR
         self.hex_size = HEX_SIZE
-        self.grid = GRID
+        self.grid = {}
+        self.map = {}
+        self.assets = []
         self.zoom_level = 0
         self.pan_x = 0
         self.pan_y = 0
         self.offset_x = 0
         self.offset_y = 0
-        self.selected_color = Terrain.FOG.value
+        self.selected_terrain = Terrain.FOG.value
+        self.selected_feature = None
 
     def create_main_window(self):
         self.root, self.canvas = create_main_window(self)
         sv_ttk.set_theme("dark")
 
-        setup_grid(self.canvas, self.hex_size, self.grid)
+        setup_grid(self.canvas, self.hex_size, self.grid, self.map)
     
     def update_root(self):
         self.root.update()
@@ -33,16 +36,15 @@ class GUI():
         self.canvas.bind(event, command)
 
     def draw_hexagon(self, q, r):
-        hexagon = draw_hexagon(self.canvas, (q, r), self.hex_size, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = draw_hexagon(self.canvas, (q, r), self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_level)
         return hexagon
     
     def draw_hex_ring(self, n):
-        hexagon = add_ring(self.grid, self.canvas, self.hex_size, self.selected_color, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = add_ring(self.grid, self.canvas, self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_level)
         return hexagon
     
-    def draw_image(self):
-        hexagon = add_img(self.root, self.canvas, (0,0), 15, offset_x=0, offset_y=0, zoom_level=0)
-        return hexagon
+    def draw_image(self, hex_tuple, img_path):
+        self.assets.append( add_img(self.root, self.canvas, hex_tuple, img_path, 15, offset_x=0, offset_y=0, zoom_level=0) )
     
     def focus(self):
         self.canvas.focus_set()
@@ -55,10 +57,10 @@ class GUI():
         self.zoom_level += -1
         self.canvas.scale(tk.ALL, self.width / 2, self.height / 2, 1/1.1, 1/1.1)
 
-    def on_button_click(color, canvas):
+    def on_button_terrain(color, canvas):
         pass
 
-    def on_button_hex(canvas):
+    def on_button_feature(canvas):
         pass
 
     def on_hexagon_double_click(event, canvas):

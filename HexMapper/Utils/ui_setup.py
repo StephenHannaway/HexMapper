@@ -2,10 +2,10 @@
 import tkinter as tk
 from tkinter import ttk
 from Utils.Hexagon import Hexagon
-from constants.mapperConstants import Terrain
+from constants.mapperConstants import Terrain, Feature
 from Utils.event_handler_new import (
-    on_button_click,
-    on_button_hex,
+    on_button_terrain,
+    on_button_feature,
     on_hexagon_double_click,
     on_pan_start,
     on_pan_motion,
@@ -56,14 +56,14 @@ def create_main_window(gui):
     zoom_out_button.grid(row=5, column=2, padx=10, pady=5, sticky="W")
 
     # Terrain Buttons
-    farm_button = ttk.Button(root, text="Farm", command=lambda: on_button_click(gui, Terrain.FARM.value))
-    mountain_button = ttk.Button(root, text="Mountain", command=lambda: on_button_click(gui, Terrain.MOUNTAIN.value))
-    forest_button = ttk.Button(root, text="Forest", command=lambda: on_button_click(gui, Terrain.FOREST.value))
-    lake_button = ttk.Button(root, text="Lake", command=lambda: on_button_click(gui, Terrain.LAKE.value))
-    desert_button = ttk.Button(root, text="Desert", command=lambda: on_button_click(gui, Terrain.DESERT.value))
-    fog_button = ttk.Button(root, text="Fog", command=lambda: on_button_click(gui, Terrain.FOG.value))
-    city_button = ttk.Button(root, text="City", command=lambda: on_button_click(gui, Terrain.CITY.value))
-    swamp_button = ttk.Button(root, text="Swamp", command=lambda: on_button_click(gui, Terrain.SWAMP.value))
+    farm_button = ttk.Button(root, text="Farm", command=lambda: on_button_terrain(gui, Terrain.FARM.value))
+    mountain_button = ttk.Button(root, text="Mountain", command=lambda: on_button_terrain(gui, Terrain.MOUNTAIN.value))
+    forest_button = ttk.Button(root, text="Forest", command=lambda: on_button_terrain(gui, Terrain.FOREST.value))
+    lake_button = ttk.Button(root, text="Lake", command=lambda: on_button_terrain(gui, Terrain.LAKE.value))
+    desert_button = ttk.Button(root, text="Desert", command=lambda: on_button_terrain(gui, Terrain.DESERT.value))
+    fog_button = ttk.Button(root, text="Fog", command=lambda: on_button_terrain(gui, Terrain.FOG.value))
+    city_button = ttk.Button(root, text="City", command=lambda: on_button_terrain(gui, Terrain.CITY.value))
+    swamp_button = ttk.Button(root, text="Swamp", command=lambda: on_button_terrain(gui, Terrain.SWAMP.value))
 
     farm_button.grid(row=7, column=1, padx=10, pady=5, sticky="W")
     mountain_button.grid(row=7, column=2, padx=10, pady=5, sticky="W")
@@ -75,8 +75,28 @@ def create_main_window(gui):
     swamp_button.grid(row=10, column=2, padx=10, pady=5, sticky="W")
 
     # Feature Buttons
-    feature_button1 = ttk.Button(root, text="City", command=lambda: on_button_hex(gui))
-    feature_button1.grid(row=12, column=1, padx=10, pady=5, sticky="W")
+    city_button = ttk.Button(root, text="City", command=lambda: on_button_feature(gui, Feature.CITY.value))
+    village_button = ttk.Button(root, text="Village", command=lambda: on_button_feature(gui, Feature.VILLAGE.value))
+    wall_button = ttk.Button(root, text="Wall", command=lambda: on_button_feature(gui, Feature.WALL.value))
+    bridge_button = ttk.Button(root, text="Bridge", command=lambda: on_button_feature(gui, Feature.BRIDGE.value))
+    tower_button = ttk.Button(root, text="Tower", command=lambda: on_button_feature(gui, Feature.TOWER.value))
+    bridge_button = ttk.Button(root, text="Bridge", command=lambda: on_button_feature(gui, Feature.BRIDGE.value))
+    cave_button = ttk.Button(root, text="Cave", command=lambda: on_button_feature(gui, Feature.CAVE.value))
+    mine_button = ttk.Button(root, text="Mine", command=lambda: on_button_feature(gui, Feature.MINE.value))
+    ruins_button = ttk.Button(root, text="Ruins", command=lambda: on_button_feature(gui, Feature.RUINS.value))
+    temple_button = ttk.Button(root, text="Temple", command=lambda: on_button_feature(gui, Feature.TEMPLE.value))
+    camp_button = ttk.Button(root, text="Camp", command=lambda: on_button_feature(gui, Feature.CAMP.value))
+
+    city_button.grid(row=12, column=1, padx=10, pady=5, sticky="W")
+    village_button.grid(row=12, column=2, padx=10, pady=5, sticky="W")
+    wall_button.grid(row=13, column=1, padx=10, pady=5, sticky="W")
+    bridge_button.grid(row=13, column=2, padx=10, pady=5, sticky="W")
+    tower_button.grid(row=14, column=1, padx=10, pady=5, sticky="W")
+    cave_button.grid(row=14, column=2, padx=10, pady=5, sticky="W")
+    mine_button.grid(row=15, column=1, padx=10, pady=5, sticky="W")
+    ruins_button.grid(row=15, column=2, padx=10, pady=5, sticky="W")
+    temple_button.grid(row=16, column=1, padx=10, pady=5, sticky="W")
+    camp_button.grid(row=16, column=2, padx=10, pady=5, sticky="W")
 
     # After creating the canvas, make it focusable
     canvas.configure(takefocus=1)
@@ -84,11 +104,13 @@ def create_main_window(gui):
     canvas.focus_set()
     return root, canvas
 
-def setup_grid(canvas, HEX_SIZE, GRID,axial_range = 5):
+def setup_grid(canvas, HEX_SIZE, grid, map, axial_range = 5):
     # Function to initialize and draw the hexagon grid
       # Example axial range for the grid
     for q in range(-axial_range, axial_range + 1):
         for r in range(-axial_range, axial_range + 1):
             if -q - r >= -axial_range and -q - r <= axial_range:
                 #canvas_location = draw_hexagon(canvas, (q, r), hex_size, width, height, Terrain.FOG.value)
-                GRID[(q, r)] = Hexagon(q, r, HEX_SIZE, Terrain.FOG, None, canvas)
+                hex = Hexagon(q, r, HEX_SIZE, Terrain.FOG, None, canvas)
+                grid[(q, r)] = hex
+                map[hex.canvas_id] = (q, r)

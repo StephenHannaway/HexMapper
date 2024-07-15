@@ -1,25 +1,30 @@
 # event_handlers.py
-from constants.mapperConstants import Terrain
+from constants.mapperConstants import Terrain, Feature
 from Utils.drawer import draw_hexagon
 import tkinter as tk
 
-selected_color = Terrain.FOG.value
+selected_terrain = Terrain.FOG.value
 pan_data = {"x": 0, "y": 0}
 
-def on_button_click(gui, color):
-    gui.selected_color = color
+def on_button_terrain(gui, color):
+    gui.selected_terrain = color
     gui.focus()
 
-def on_button_hex(gui):
+def on_button_feature(gui, feature):
     #gui.draw_hex_ring(6)
-    gui.draw_image()
+    gui.selected_feature = feature
+    gui.selected_terrain = None
     gui.focus()
 
 def on_hexagon_double_click(gui):
     item = gui.canvas.find_withtag("current")
     print(item)
     if item:
-        gui.canvas.itemconfig(item, fill=gui.selected_color)
+        if gui.selected_terrain:
+            gui.canvas.itemconfig(item, fill=gui.selected_terrain)
+        else:
+            hex_tuple = gui.map[item[0]]
+            gui.draw_image(hex_tuple, gui.selected_feature)
 
 def on_zoom_in(gui):
     print("Zooming in")

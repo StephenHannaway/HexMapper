@@ -3,19 +3,16 @@ from enum import Enum
 class Feature(Enum):
     RIVER = "River"
     ROAD = "Road"
-    VILLAGE = "Village"
+    VILLAGE = r"HexMapper\assets\village.png"
     CITY = r"HexMapper\assets\akaford.png"
-    FORTRESS = "Fortress"
-    BRIDGE = "Bridge"
-    CASTLE = "Castle"
-    TOWER = "Tower"
-    DUNGEON = "Dungeon"
-    CAVE = "Cave"
-    MINE = "Mine"
-    RUINS = "Ruins"
-    TEMPLE = "Temple"
-    CAMP = "Camp"
-
+    WALL = r"HexMapper\assets\wall.png"
+    BRIDGE = r"HexMapper\assets\bridge.png"
+    TOWER = r"HexMapper\assets\tower.png"
+    CAVE = r"HexMapper\assets\cave.png"
+    MINE = r"HexMapper\assets\mine.png"
+    RUINS = r"HexMapper\assets\ruin.png"
+    TEMPLE = r"HexMapper\assets\temple.png"
+    CAMP = r"HexMapper\assets\camp.png"
 
 
 class Terrain(Enum):

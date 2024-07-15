@@ -3,8 +3,8 @@ from interface import GUI
 from constants.mapperConstants import Terrain
 from Utils.Hexagon import Hexagon
 from Utils.event_handler_new import (
-    on_button_click,
-    on_button_hex,
+    on_button_terrain,
+    on_button_feature,
     on_hexagon_double_click,
     on_pan_start,
     on_pan_motion,
