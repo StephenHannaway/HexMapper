@@ -16,9 +16,10 @@ def on_button_feature(gui, feature):
     gui.selected_terrain = None
     gui.focus()
 
-def on_hexagon_double_click(gui):
+def on_hexagon_double_click(event, gui):
+    # Get all items at the clicked point
+    items = gui.canvas.find_overlapping(event.x, event.y, event.x, event.y)
     item = gui.canvas.find_withtag("current")
-    print(item)
     if item:
         if gui.selected_terrain:
             gui.canvas.itemconfig(item, fill=gui.selected_terrain)
@@ -52,8 +53,33 @@ def on_pan_motion(event, gui):
     gui.pan_y = event.y
     gui.offset_x += delta_x
     gui.offset_y += delta_y
+    print(f"Offset x: {gui.offset_x}, Offset y: {gui.offset_y}")
 
 def on_resize(event, gui):
     print("New size is: {}x{}".format(event.width, event.height))
     gui.canvas.focus_set()
 
+def on_button_paint(gui):
+    print("Painting")
+    # Bind pan events to the app
+    gui.bind_event("<ButtonPress-1>", lambda event: on_paint_start(event, gui))
+    gui.bind_event("<B1-Motion>", lambda event: on_paint_motion(event, gui))
+    gui.focus()
+
+def on_button_pan(gui):
+    print("Panning")
+    # Bind pan events to the app
+    gui.bind_event("<ButtonPress-1>", lambda event: on_pan_start(event, gui))
+    gui.bind_event("<B1-Motion>", lambda event: on_pan_motion(event, gui))
+    gui.focus()
+
+def on_paint_motion(event, gui):
+    items = gui.canvas.find_overlapping(event.x, event.y, event.x, event.y)
+    for item in items:
+        if "hexagon" in gui.canvas.gettags(item):
+                # Change the color of the hexagon
+                gui.canvas.itemconfig(item, fill=gui.selected_terrain)
+    gui.focus() 
+
+def on_paint_start(event, gui):
+    gui.focus()

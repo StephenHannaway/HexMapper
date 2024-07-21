@@ -4,7 +4,7 @@ from tkinter import ttk
 import sv_ttk
 from Utils.Hexagon import Hexagon 
 from Utils.ui_setup import create_main_window, setup_grid
-from Utils.drawer import draw_hexagon, add_ring, add_img
+from Utils.drawer import draw_hexagon, add_ring, add_img, scale_images
 from constants.mapperConstants import Terrain
 class GUI():
     def __init__(self, WIDTH=1000, HEIGHT=900, HEX_SIZE=40, BACKGROUND_COLOR="#1e1e1e"):
@@ -15,7 +15,7 @@ class GUI():
         self.grid = {}
         self.map = {}
         self.assets = []
-        self.zoom_level = 0
+        self.zoom_factor = 1.0
         self.pan_x = 0
         self.pan_y = 0
         self.offset_x = 0
@@ -36,26 +36,30 @@ class GUI():
         self.canvas.bind(event, command)
 
     def draw_hexagon(self, q, r):
-        hexagon = draw_hexagon(self.canvas, (q, r), self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = draw_hexagon(self.canvas, (q, r), self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_factor)
         return hexagon
     
     def draw_hex_ring(self, n):
-        hexagon = add_ring(self.grid, self.canvas, self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_level)
+        hexagon = add_ring(self.grid, self.canvas, self.hex_size, self.selected_terrain, self.offset_x, self.offset_y, self.zoom_factor)
         return hexagon
     
     def draw_image(self, hex_tuple, img_path):
-        self.assets.append( add_img(self.root, self.canvas, hex_tuple, img_path, 15, offset_x=0, offset_y=0, zoom_level=0) )
+        self.assets.append( add_img(self.root, self.canvas, hex_tuple, img_path, self.hex_size, self.offset_x, self.offset_y, self.zoom_factor) )
     
     def focus(self):
         self.canvas.focus_set()
 
     def zoom_in(self):
-        self.zoom_level += 1
+        self.zoom_factor *= 1.1
         self.canvas.scale(tk.ALL, self.width / 2, self.height / 2, 1.1, 1.1)
+        scaled_assets = scale_images(self.canvas, self.assets, self.hex_size, self.zoom_factor)
+        self.asset = scaled_assets
 
     def zoom_out(self):
-        self.zoom_level += -1
+        self.zoom_factor /= 1.1
         self.canvas.scale(tk.ALL, self.width / 2, self.height / 2, 1/1.1, 1/1.1)
+        scaled_assets = scale_images(self.canvas, self.assets, self.hex_size, self.zoom_factor)
+        self.asset = scaled_assets
 
     def on_button_terrain(color, canvas):
         pass
@@ -64,12 +68,6 @@ class GUI():
         pass
 
     def on_hexagon_double_click(event, canvas):
-        pass
-
-    def on_zoom_in(event, canvas, WIDTH, HEIGHT):
-        pass
-
-    def on_zoom_out(event, canvas, WIDTH, HEIGHT):
         pass
 
     def pan_start(event):

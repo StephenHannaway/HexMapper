@@ -12,6 +12,8 @@ from Utils.event_handler_new import (
     on_zoom_in,
     on_zoom_out,
     on_resize,
+    on_button_paint,
+    on_button_pan
 )
 
 def create_main_window(gui):
@@ -38,8 +40,8 @@ def create_main_window(gui):
     features_label.grid(row=11, column=1, padx=10, pady=5, sticky="W")
 
     # Painting and Panning Buttons
-    paint_button = ttk.Button(root, text="Paint")
-    pan_button = ttk.Button(root, text="Pan")
+    paint_button = ttk.Button(root, text="Paint", command=lambda: on_button_paint(gui))
+    pan_button = ttk.Button(root, text="Pan", command=lambda: on_button_pan(gui))
 
     paint_button.grid(row=2, column=1, padx=10, pady=5, sticky="W")
     pan_button.grid(row=2, column=2, padx=10, pady=5, sticky="W")

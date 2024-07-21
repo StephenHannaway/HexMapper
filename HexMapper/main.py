@@ -18,7 +18,7 @@ def main():
     app.create_main_window()
     app.update_root()
 
-    app.bind_event("<Double-Button-1>", lambda event: on_hexagon_double_click(app))
+    app.bind_event("<Double-Button-1>", lambda event: on_hexagon_double_click(event, app))
 
     # Bind pan events to the app
     app.bind_event("<ButtonPress-1>", lambda event: on_pan_start(event, app))
