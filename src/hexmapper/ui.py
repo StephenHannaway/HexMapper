@@ -281,9 +281,10 @@ class UIManager:
             rect=pygame.Rect(0, 0, 400, 400),
             manager=self.gui_manager,
             window_title="Save Map",
-            initial_file_path="hexmap",
+            initial_file_path="untitled.hexmap",
             allow_existing_files_only=False,
             allow_picking_directories=False,
+            allowed_suffixes={"hexmap"},
         )
         self.file_dialog_window.set_blocking(True)
         self._pending_save_data = save_data
@@ -296,6 +297,7 @@ class UIManager:
             initial_file_path="",
             allow_existing_files_only=True,
             allow_picking_directories=False,
+            allowed_suffixes={"hexmap"},
         )
         self.file_dialog_window.set_blocking(True)
 
@@ -325,6 +327,10 @@ class UIManager:
     def _handle_key_down(self, event: pygame.event.Event) -> None:
         if event.key == pygame.K_a:
             self.hex_grid.add_layer(self.current_terrain)
+        elif event.key == pygame.K_s and (event.mod & pygame.KMOD_CTRL):
+            self._handle_save()
+        elif event.key == pygame.K_o and (event.mod & pygame.KMOD_CTRL):
+            self._handle_load()
 
     def _handle_mouse_motion(self, event: pygame.event.Event) -> None:
         if (
@@ -335,6 +341,11 @@ class UIManager:
             self.handle_paint(event.pos)
 
     def draw(self, screen: pygame.Surface) -> None:
+        if self.removing and not self.ui_rect.collidepoint(pygame.mouse.get_pos()):
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_NO)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+
         pygame.draw.rect(screen, (40, 40, 45), self.ui_rect)
 
         mouse_pos = pygame.mouse.get_pos()
@@ -361,6 +372,7 @@ class UIManager:
             self.remove_hex_rect,
             "Stop Removing" if self.removing else "Remove Hex",
             self.remove_hex_rect.collidepoint(mouse_pos),
+            active=self.removing,
         )
         self._draw_modern_button(
             screen,
@@ -384,9 +396,14 @@ class UIManager:
         rect: pygame.Rect,
         text: str,
         hover: bool = False,
+        active: bool = False,
     ) -> None:
-        color1 = (100, 100, 110) if hover else (80, 80, 90)
-        color2 = (80, 80, 90) if hover else (60, 60, 70)
+        if active:
+            color1 = (130, 50, 50) if hover else (110, 40, 40)
+            color2 = (110, 40, 40) if hover else (90, 30, 30)
+        else:
+            color1 = (100, 100, 110) if hover else (80, 80, 90)
+            color2 = (80, 80, 90) if hover else (60, 60, 70)
         pygame.draw.rect(screen, color1, rect, border_radius=6)
         pygame.draw.rect(screen, color2, rect.inflate(-4, -4), border_radius=4)
 

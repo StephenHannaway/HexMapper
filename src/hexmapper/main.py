@@ -35,7 +35,7 @@ def main() -> None:
 
             ui_manager.handle_event(event)
 
-            if event.type == pygame.KEYDOWN:
+            if event.type == pygame.KEYDOWN and ui_manager.file_dialog_window is None:
                 if event.key == pygame.K_LEFT:
                     viewport.pan((-10 / viewport.scale, 0))
                 elif event.key == pygame.K_RIGHT:
@@ -51,14 +51,15 @@ def main() -> None:
 
         pan_speed = 10 / viewport.scale
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT]:
-            viewport.pan((-pan_speed, 0))
-        if keys[pygame.K_RIGHT]:
-            viewport.pan((pan_speed, 0))
-        if keys[pygame.K_UP]:
-            viewport.pan((0, -pan_speed))
-        if keys[pygame.K_DOWN]:
-            viewport.pan((0, pan_speed))
+        if ui_manager.file_dialog_window is None:
+            if keys[pygame.K_LEFT]:
+                viewport.pan((-pan_speed, 0))
+            if keys[pygame.K_RIGHT]:
+                viewport.pan((pan_speed, 0))
+            if keys[pygame.K_UP]:
+                viewport.pan((0, -pan_speed))
+            if keys[pygame.K_DOWN]:
+                viewport.pan((0, pan_speed))
 
         screen.fill((30, 30, 30))
         hex_renderer.draw(screen)
