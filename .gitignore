@@ -10,3 +10,9 @@ build/
 .pytest_cache/
 .ruff_cache/
 uv.lock
+
+# Map save files
+*.hexmap*
+hexmap
+homlet
+hex5
