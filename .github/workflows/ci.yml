@@ -19,6 +19,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
