@@ -62,7 +62,7 @@ class UIManager:
         if hasattr(self, "icon_dropdown"):
             self.icon_dropdown.kill()
 
-        ui_width = max(MIN_UI_WIDTH, self.screen_width * UI_WIDTH_PERCENT)
+        ui_width = int(max(MIN_UI_WIDTH, self.screen_width * UI_WIDTH_PERCENT))
         button_width = max(MIN_BUTTON_WIDTH, ui_width * BUTTON_WIDTH_PERCENT)
 
         self.font = pygame.font.SysFont(
