@@ -171,7 +171,18 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     store.log_op(
                         author,
                         str(op),
-                        {k: msg[k] for k in ("q", "r", "terrain", "icon") if k in msg},
+                        {
+                            k: msg[k]
+                            for k in (
+                                "q",
+                                "r",
+                                "terrain",
+                                "icon",
+                                "explored",
+                                "enabled",
+                            )
+                            if k in msg
+                        },
                     )
             if op == "hello":
                 hub.clients[ws] = str(msg.get("name") or "anonymous")[:32]
@@ -185,7 +196,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.broadcast({"type": "presence", "users": hub.names()})
 
 
-DM_OPS = {"clear_all"}
+DM_OPS = {"clear_all", "set_explored", "set_fog"}
 
 
 def apply_op(
@@ -241,6 +252,27 @@ def apply_op(
             "q": q,
             "r": r,
             **result,
+        }
+    if op == "set_explored":
+        q, r = int(msg["q"]), int(msg["r"])
+        explored = bool(msg["explored"])
+        store.set_explored(q, r, explored)
+        return {
+            "type": "op",
+            "op": "set_explored",
+            "version": store.version,
+            "q": q,
+            "r": r,
+            "explored": explored,
+        }
+    if op == "set_fog":
+        enabled = bool(msg["enabled"])
+        store.set_fog(enabled)
+        return {
+            "type": "op",
+            "op": "set_fog",
+            "version": store.version,
+            "enabled": enabled,
         }
     if op == "set_party":
         q, r = int(msg["q"]), int(msg["r"])

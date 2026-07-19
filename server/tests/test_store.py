@@ -43,6 +43,7 @@ def test_set_hex_and_snapshot(store: MapStore) -> None:
         "icon": None,
         "note": None,
         "note_author": None,
+        "explored": 1,
     } in snap["hexes"]
 
 
@@ -149,3 +150,48 @@ def test_set_party_and_snapshot(store: MapStore) -> None:
     assert store.snapshot()["party"] == {"q": 3, "r": -2}
     store.set_party(4, -2)
     assert store.snapshot()["party"] == {"q": 4, "r": -2}
+
+
+def test_hexes_default_explored(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    (cell,) = store.snapshot()["hexes"]
+    assert cell["explored"] == 1
+
+
+def test_set_explored_toggles(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_explored(0, 0, False)
+    assert store.snapshot()["hexes"][0]["explored"] == 0
+    store.set_explored(0, 0, True)
+    assert store.snapshot()["hexes"][0]["explored"] == 1
+
+
+def test_repaint_marks_explored(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_explored(0, 0, False)
+    store.set_hex(0, 0, "DESERT")
+    assert store.snapshot()["hexes"][0]["explored"] == 1
+
+
+def test_fog_flag_persists(store: MapStore) -> None:
+    assert store.snapshot()["fog"] is False
+    store.set_fog(True)
+    assert store.snapshot()["fog"] is True
+    store.set_fog(False)
+    assert store.snapshot()["fog"] is False
+
+
+def test_explored_migration_defaults_true(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_file = tmp_path / "old.db"
+    con = sqlite3.connect(db_file)
+    con.execute(
+        "CREATE TABLE hexes (q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
+        "note TEXT, note_author TEXT, PRIMARY KEY (q, r))"
+    )
+    con.execute("INSERT INTO hexes VALUES (0, 0, 'FOG', NULL, NULL, NULL)")
+    con.commit()
+    con.close()
+    store = MapStore(db_file)
+    assert store.snapshot()["hexes"][0]["explored"] == 1

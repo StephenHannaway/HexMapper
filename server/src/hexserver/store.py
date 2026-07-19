@@ -15,12 +15,16 @@ class MapStore:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS hexes ("
             "q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
-            "note TEXT, note_author TEXT, PRIMARY KEY (q, r))"
+            "note TEXT, note_author TEXT, explored INTEGER DEFAULT 1, "
+            "PRIMARY KEY (q, r))"
         )
         cols = {row[1] for row in self.db.execute("PRAGMA table_info(hexes)")}
         if "note" not in cols:
             self.db.execute("ALTER TABLE hexes ADD COLUMN note TEXT")
             self.db.execute("ALTER TABLE hexes ADD COLUMN note_author TEXT")
+            self.db.commit()
+        if "explored" not in cols:
+            self.db.execute("ALTER TABLE hexes ADD COLUMN explored INTEGER DEFAULT 1")
             self.db.commit()
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS ops ("
@@ -40,11 +44,12 @@ class MapStore:
 
     def snapshot(self) -> dict[str, Any]:
         rows = self.db.execute(
-            "SELECT q, r, terrain, icon, note, note_author FROM hexes"
+            "SELECT q, r, terrain, icon, note, note_author, explored FROM hexes"
         ).fetchall()
         return {
             "version": self.version,
             "party": self.party(),
+            "fog": self.fog_enabled(),
             "hexes": [
                 {
                     "q": q,
@@ -53,8 +58,9 @@ class MapStore:
                     "icon": icon,
                     "note": note,
                     "note_author": note_author,
+                    "explored": explored,
                 }
-                for q, r, terrain, icon, note, note_author in rows
+                for q, r, terrain, icon, note, note_author, explored in rows
             ],
         }
 
@@ -63,7 +69,7 @@ class MapStore:
             raise ValueError(f"unknown terrain {terrain!r}")
         self.db.execute(
             "INSERT INTO hexes (q, r, terrain, icon) VALUES (?, ?, ?, NULL) "
-            "ON CONFLICT (q, r) DO UPDATE SET terrain = excluded.terrain",
+            "ON CONFLICT (q, r) DO UPDATE SET terrain = excluded.terrain, explored = 1",
             (q, r, terrain),
         )
         self.db.commit()
@@ -119,6 +125,29 @@ class MapStore:
         self.db.execute("DELETE FROM hexes")
         self.db.execute(
             "INSERT INTO hexes (q, r, terrain, icon) VALUES (0, 0, 'FOG', NULL)"
+        )
+        self.db.commit()
+        self.version += 1
+
+    def set_explored(self, q: int, r: int, explored: bool) -> None:
+        cur = self.db.execute(
+            "UPDATE hexes SET explored = ? WHERE q = ? AND r = ?",
+            (1 if explored else 0, q, r),
+        )
+        self.db.commit()
+        if not cur.rowcount:
+            raise ValueError(f"no hex at {q},{r}")
+        self.version += 1
+
+    def fog_enabled(self) -> bool:
+        row = self.db.execute("SELECT value FROM meta WHERE key = 'fog'").fetchone()
+        return row is not None and row[0] == "1"
+
+    def set_fog(self, enabled: bool) -> None:
+        self.db.execute(
+            "INSERT INTO meta (key, value) VALUES ('fog', ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            ("1" if enabled else "0",),
         )
         self.db.commit()
         self.version += 1

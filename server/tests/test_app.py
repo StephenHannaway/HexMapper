@@ -225,3 +225,31 @@ def test_ping_is_ephemeral(client: TestClient) -> None:
         assert (msg["q"], msg["r"]) == (5, -3)
     assert app_module.store.version == before
     assert app_module.store.history(10) == []
+
+
+def test_set_explored_is_dm_only(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOG")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_explored", "q": 0, "r": 0, "explored": False})
+        assert ws.receive_json()["type"] == "error"
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_explored", "q": 0, "r": 0, "explored": False})
+        msg = ws.receive_json()
+        assert msg["op"] == "set_explored"
+        assert msg["explored"] is False
+
+
+def test_set_fog_is_dm_only(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_fog", "enabled": True})
+        assert ws.receive_json()["type"] == "error"
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_fog", "enabled": True})
+        msg = ws.receive_json()
+        assert msg["op"] == "set_fog"
+        assert msg["enabled"] is True
+    assert app_module.store.snapshot()["fog"] is True

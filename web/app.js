@@ -20,6 +20,7 @@ const state = {
   role: "dm",
   party: null, // {q, r} shared party position
   hadSnapshot: false,
+  fog: false,
 };
 
 const key = (q, r) => `${q},${r}`;
@@ -47,6 +48,16 @@ function screenToWorld(sx, sy) {
   return [(sx - state.offsetX) / state.scale, (sy - state.offsetY) / state.scale];
 }
 
+function traceHex(sx, sy, size) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    const px = sx + size * Math.cos(a), py = sy + size * Math.sin(a);
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
 function draw() {
   const w = canvas.width, h = canvas.height;
   ctx.fillStyle = "#1e1e1e";
@@ -57,13 +68,16 @@ function draw() {
     const sx = wx * state.scale + state.offsetX;
     const sy = wy * state.scale + state.offsetY;
     if (sx < -size * 2 || sy < -size * 2 || sx > w + size * 2 || sy > h + size * 2) continue;
-    ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI / 3) * i;
-      const px = sx + size * Math.cos(a), py = sy + size * Math.sin(a);
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    const fogged = state.fog && !cell.explored;
+    traceHex(sx, sy, size);
+    if (fogged && state.role !== "dm") {
+      ctx.fillStyle = "#26262c";
+      ctx.fill();
+      ctx.strokeStyle = "#323232";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      continue;
     }
-    ctx.closePath();
     ctx.fillStyle = state.terrains[cell.terrain] || "#ff00ff";
     ctx.fill();
     ctx.strokeStyle = "#323232";
@@ -84,6 +98,12 @@ function draw() {
       ctx.strokeStyle = "#00000088";
       ctx.lineWidth = 1;
       ctx.stroke();
+    }
+    if (fogged) {
+      // DM view of a hidden hex: rendered but dimmed
+      traceHex(sx, sy, size);
+      ctx.fillStyle = "#00000073";
+      ctx.fill();
     }
   }
   const now = performance.now();
@@ -146,7 +166,9 @@ function addPing(q, r) {
 // --- sync ---
 
 function applyHex(h) {
-  state.hexes.set(key(h.q, h.r), { icon: null, note: null, note_author: null, ...h });
+  state.hexes.set(key(h.q, h.r), {
+    icon: null, note: null, note_author: null, explored: 1, ...h,
+  });
 }
 
 function connect() {
@@ -169,6 +191,8 @@ function connect() {
       state.hexes.clear();
       msg.hexes.forEach(applyHex);
       state.party = msg.party || null;
+      state.fog = !!msg.fog;
+      updateFogBtn();
       state.version = msg.version;
       if (firstLoad) fitView();
       if (msg.action) {
@@ -184,6 +208,7 @@ function connect() {
           icon: existing ? existing.icon : null,
           note: existing ? existing.note : null,
           note_author: existing ? existing.note_author : null,
+          explored: 1,
         });
       } else if (msg.op === "set_note") {
         const cell = state.hexes.get(key(msg.q, msg.r));
@@ -192,6 +217,13 @@ function connect() {
           cell.note_author = msg.note_author;
           refreshNotePanel(msg.q, msg.r);
         }
+      } else if (msg.op === "set_explored") {
+        const cell = state.hexes.get(key(msg.q, msg.r));
+        if (cell) cell.explored = msg.explored ? 1 : 0;
+      } else if (msg.op === "set_fog") {
+        state.fog = msg.enabled;
+        updateFogBtn();
+        toast(`Fog of war ${state.fog ? "enabled" : "disabled"}`);
       } else if (msg.op === "set_party") {
         state.party = { q: msg.q, r: msg.r };
       } else if (msg.op === "set_icon") {
@@ -241,7 +273,15 @@ function editAt(clientX, clientY) {
   const cell = state.hexes.get(k);
 
   if (state.tool === "note") {
-    openNotePanel(q, r);
+    if (state.fog && state.role !== "dm" && cell && !cell.explored) {
+      toast("Unexplored territory");
+    } else {
+      openNotePanel(q, r);
+    }
+  } else if (state.tool === "reveal") {
+    if (!cell) return;
+    cell.explored = cell.explored ? 0 : 1;
+    send({ op: "set_explored", q, r, explored: !!cell.explored });
   } else if (state.tool === "party") {
     state.party = { q, r };
     send({ op: "set_party", q, r });
@@ -263,6 +303,7 @@ function editAt(clientX, clientY) {
       icon: cell ? cell.icon : null,
       note: cell ? cell.note : null,
       note_author: cell ? cell.note_author : null,
+      explored: 1,
     });
     send({ op: "set_hex", q, r, terrain: state.terrain });
   }
@@ -468,7 +509,7 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["revealBtn", "reveal"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
@@ -547,6 +588,8 @@ function opText(e) {
     case "remove_hex": return `removed hex${at}`;
     case "set_note": return `wrote a note on${at}`;
     case "set_party": return `moved the party to${at}`;
+    case "set_explored": return `${d.explored ? "revealed" : "hid"} hex${at}`;
+    case "set_fog": return `turned fog of war ${d.enabled ? "on" : "off"}`;
     case "add_layer": case "apply_hexes": return "added a ring of hexes";
     case "clear_all": return "cleared the map";
     case "import": return "restored a map";
@@ -603,6 +646,12 @@ document.getElementById("centerBtn").onclick = fitView;
 document.getElementById("paintBtn").onclick = () => setTool("paint");
 document.getElementById("iconBtn").onclick = () => setTool("icon");
 document.getElementById("partyBtn").onclick = () => setTool("party");
+document.getElementById("revealBtn").onclick = () => setTool("reveal");
+const fogBtn = document.getElementById("fogBtn");
+function updateFogBtn() {
+  fogBtn.textContent = `Fog of war: ${state.fog ? "on" : "off"}`;
+}
+fogBtn.onclick = () => send({ op: "set_fog", enabled: !state.fog });
 document.getElementById("removeBtn").onclick = () => setTool("remove");
 document.getElementById("layerBtn").onclick = () =>
   send({ op: "add_layer", terrain: state.terrain });
