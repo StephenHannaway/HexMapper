@@ -39,6 +39,11 @@
   #toast { position: fixed; left: 12px; bottom: 12px; background: #34343ccc;
     padding: 6px 12px; border-radius: 6px; font-size: 12px; opacity: 0;
     transition: opacity .3s; pointer-events: none; }
+  @media (pointer: coarse) {
+    select, button, input { padding: 12px 10px; font-size: 15px; }
+    #terrainGrid button { height: 36px; padding: 0; }
+    #iconGrid button { height: 56px; padding: 5px; }
+  }
 </style>
 </head>
 <body>

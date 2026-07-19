@@ -175,11 +175,22 @@ function editAt(clientX, clientY) {
 // --- input ---
 
 let dragging = false, painting = false, lastX = 0, lastY = 0, moved = 0;
-let spaceHeld = false;
+let spaceHeld = false, didPinch = false, pinchDist = 0;
+const pointers = new Map(); // pointerId -> {x, y}
 const heldKeys = new Set();
 
 canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) {
+    // second finger: switch to pinch-zoom, cancel any paint/drag in progress
+    dragging = painting = false;
+    didPinch = true;
+    const [a, b] = [...pointers.values()];
+    pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+    return;
+  }
+  if (pointers.size > 2) return;
   lastX = e.clientX; lastY = e.clientY; moved = 0;
   const panning =
     state.tool === "pan" || spaceHeld || e.button === 1 || e.button === 2 || e.shiftKey;
@@ -190,6 +201,22 @@ canvas.addEventListener("pointerdown", (e) => {
 });
 
 canvas.addEventListener("pointermove", (e) => {
+  const p = pointers.get(e.pointerId);
+  if (p && pointers.size === 2) {
+    const other = [...pointers.entries()].find(([id]) => id !== e.pointerId)[1];
+    const oldMidX = (p.x + other.x) / 2, oldMidY = (p.y + other.y) / 2;
+    p.x = e.clientX; p.y = e.clientY;
+    const newMidX = (p.x + other.x) / 2, newMidY = (p.y + other.y) / 2;
+    const newDist = Math.hypot(p.x - other.x, p.y - other.y);
+    state.offsetX += (newMidX - oldMidX) * devicePixelRatio;
+    state.offsetY += (newMidY - oldMidY) * devicePixelRatio;
+    if (pinchDist > 0) zoomAt(newMidX, newMidY, newDist / pinchDist);
+    pinchDist = newDist;
+    draw();
+    return;
+  }
+  if (p) { p.x = e.clientX; p.y = e.clientY; }
+  if (didPinch) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY;
   moved += Math.abs(dx) + Math.abs(dy);
   lastX = e.clientX; lastY = e.clientY;
@@ -202,11 +229,21 @@ canvas.addEventListener("pointermove", (e) => {
   }
 });
 
-canvas.addEventListener("pointerup", (e) => {
-  if (painting && (state.tool !== "paint" || moved < 6)) editAt(e.clientX, e.clientY);
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  if (!pointers.size) didPinch = false;
   dragging = painting = false;
   canvas.style.cursor = state.tool === "pan" ? "grab" : "crosshair";
+}
+
+canvas.addEventListener("pointerup", (e) => {
+  const wasPainting = painting && !didPinch;
+  const doEdit = wasPainting && (state.tool !== "paint" || moved < 6);
+  endPointer(e);
+  if (doEdit) editAt(e.clientX, e.clientY);
 });
+
+canvas.addEventListener("pointercancel", endPointer);
 
 function isTyping() {
   const el = document.activeElement;
@@ -229,6 +266,17 @@ function panLoop() {
   state.offsetY += dy * 14;
   draw();
   requestAnimationFrame(panLoop);
+}
+
+function zoomAt(clientX, clientY, factor) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = (clientX - rect.left) * devicePixelRatio;
+  const my = (clientY - rect.top) * devicePixelRatio;
+  const newScale = Math.min(6, Math.max(0.2, state.scale * factor));
+  state.offsetX = mx - (mx - state.offsetX) * (newScale / state.scale);
+  state.offsetY = my - (my - state.offsetY) * (newScale / state.scale);
+  state.scale = newScale;
+  draw();
 }
 
 function zoomAtCenter(factor) {
@@ -288,15 +336,7 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const mx = (e.clientX - rect.left) * devicePixelRatio;
-  const my = (e.clientY - rect.top) * devicePixelRatio;
-  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-  const newScale = Math.min(6, Math.max(0.2, state.scale * factor));
-  state.offsetX = mx - (mx - state.offsetX) * (newScale / state.scale);
-  state.offsetY = my - (my - state.offsetY) * (newScale / state.scale);
-  state.scale = newScale;
-  draw();
+  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.1 : 1 / 1.1);
 }, { passive: false });
 
 // --- ui ---
