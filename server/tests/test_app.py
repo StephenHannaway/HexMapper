@@ -253,3 +253,26 @@ def test_set_fog_is_dm_only(client: TestClient) -> None:
         assert msg["op"] == "set_fog"
         assert msg["enabled"] is True
     assert app_module.store.snapshot()["fog"] is True
+
+
+def test_cursor_broadcast_excludes_sender(client: TestClient) -> None:
+    with (
+        client.websocket_connect("/ws", headers=PLAYER) as ws1,
+        client.websocket_connect("/ws", headers=PLAYER) as ws2,
+    ):
+        assert ws1.receive_json()["type"] == "snapshot"
+        assert ws2.receive_json()["type"] == "snapshot"
+        ws1.send_json({"op": "hello", "name": "steph"})
+        assert ws1.receive_json()["type"] == "presence"
+        assert ws2.receive_json()["type"] == "presence"
+        before = app_module.store.version
+        ws1.send_json({"op": "cursor", "q": 3, "r": 4})
+        msg = ws2.receive_json()
+        assert msg["type"] == "cursor"
+        assert (msg["q"], msg["r"], msg["by"]) == (3, 4, "steph")
+        assert "cid" in msg
+        # the sender gets no echo: next thing ws1 sees is the ping, not a cursor
+        ws1.send_json({"op": "ping", "q": 0, "r": 0})
+        assert ws1.receive_json()["type"] == "ping"
+    assert app_module.store.version == before
+    assert app_module.store.history(10) == []

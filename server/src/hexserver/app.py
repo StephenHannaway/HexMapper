@@ -72,9 +72,13 @@ class Hub:
     def __init__(self) -> None:
         self.clients: dict[WebSocket, str] = {}
 
-    async def broadcast(self, message: dict[str, Any]) -> None:
+    async def broadcast(
+        self, message: dict[str, Any], exclude: WebSocket | None = None
+    ) -> None:
         payload = json.dumps(message)
         for ws in list(self.clients):
+            if ws is exclude:
+                continue
             try:
                 await ws.send_text(payload)
             except Exception:
@@ -159,6 +163,17 @@ async def ws_endpoint(ws: WebSocket) -> None:
             msg = json.loads(await ws.receive_text())
             op = msg.get("op")
             author = hub.clients.get(ws, "anonymous")
+            if op == "cursor":
+                # ephemeral hover position: no lock, no version, no log
+                try:
+                    cq, cr = int(msg["q"]), int(msg["r"])
+                except Exception:
+                    continue
+                await hub.broadcast(
+                    {"type": "cursor", "q": cq, "r": cr, "by": author, "cid": id(ws)},
+                    exclude=ws,
+                )
+                continue
             async with lock:
                 try:
                     out = apply_op(op, msg, role, author)

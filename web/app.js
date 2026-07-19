@@ -106,6 +106,25 @@ function draw() {
       ctx.fill();
     }
   }
+  const cutoff = Date.now() - 6000;
+  for (const c of cursors.values()) {
+    if (c.ts < cutoff) continue;
+    const [wx, wy] = hexToPixel(c.q, c.r);
+    const sx = wx * state.scale + state.offsetX;
+    const sy = wy * state.scale + state.offsetY;
+    if (sx < -size * 2 || sy < -size * 2 || sx > w + size * 2 || sy > h + size * 2) continue;
+    traceHex(sx, sy, size);
+    ctx.fillStyle = "#ffffff14";
+    ctx.fill();
+    ctx.strokeStyle = nameColor(c.name);
+    ctx.lineWidth = Math.max(1.5, size * 0.08);
+    ctx.stroke();
+    const fontPx = Math.max(10, Math.min(14, size * 0.5));
+    ctx.font = `${fontPx}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = nameColor(c.name);
+    ctx.fillText(c.name, sx, sy + size * 1.35);
+  }
   const now = performance.now();
   for (let i = pings.length - 1; i >= 0; i--) {
     const t = (now - pings[i].start) / 1500;
@@ -147,6 +166,38 @@ function resize() {
   canvas.height = canvas.clientHeight * devicePixelRatio;
   draw();
 }
+
+// --- live cursors ---
+
+const cursors = new Map(); // cid -> {q, r, name, ts}
+let lastCursorSent = 0, lastCursorKey = "";
+
+function nameColor(name) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h}, 65%, 60%)`;
+}
+
+function sendCursor(q, r) {
+  const now = Date.now();
+  const ck = key(q, r);
+  if (ck === lastCursorKey || now - lastCursorSent < 120) return;
+  lastCursorKey = ck;
+  lastCursorSent = now;
+  send({ op: "cursor", q, r });
+}
+
+setInterval(() => {
+  let changed = false;
+  const cutoff = Date.now() - 6000;
+  for (const [cid, c] of cursors) {
+    if (c.ts < cutoff) {
+      cursors.delete(cid);
+      changed = true;
+    }
+  }
+  if (changed) draw();
+}, 2000);
 
 // --- pings ---
 
@@ -201,6 +252,7 @@ function connect() {
         });
       }
     } else if (msg.type === "op") {
+      if (msg.version > state.version + 1) resync(); // missed a broadcast
       if (msg.op === "set_hex") {
         const existing = state.hexes.get(key(msg.q, msg.r));
         state.hexes.set(key(msg.q, msg.r), {
@@ -243,10 +295,10 @@ function connect() {
       });
     } else if (msg.type === "ping") {
       addPing(msg.q, msg.r);
+    } else if (msg.type === "cursor") {
+      cursors.set(msg.cid, { q: msg.q, r: msg.r, name: msg.by, ts: Date.now() });
     } else if (msg.type === "presence") {
-      document.getElementById("presence").innerHTML = msg.users
-        .map((u) => `<div><span class="dot">●</span>${esc(u)}</div>`)
-        .join("") || "nobody";
+      renderPresence(msg.users);
     } else if (msg.type === "error") {
       toast(msg.detail);
     }
@@ -257,6 +309,24 @@ function connect() {
 function send(op) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     state.ws.send(JSON.stringify(op));
+  }
+}
+
+let resyncing = false;
+async function resync() {
+  if (resyncing) return;
+  resyncing = true;
+  try {
+    const snap = await (await fetch("/api/map")).json();
+    state.hexes.clear();
+    snap.hexes.forEach(applyHex);
+    state.party = snap.party || null;
+    state.fog = !!snap.fog;
+    updateFogBtn();
+    state.version = snap.version;
+    draw();
+  } finally {
+    resyncing = false;
   }
 }
 
@@ -365,6 +435,13 @@ canvas.addEventListener("pointermove", (e) => {
   } else if (painting && state.tool === "paint") {
     editAt(e.clientX, e.clientY);
   }
+  const rect = canvas.getBoundingClientRect();
+  const [hwx, hwy] = screenToWorld(
+    (e.clientX - rect.left) * devicePixelRatio,
+    (e.clientY - rect.top) * devicePixelRatio
+  );
+  const [hq, hr] = pixelToHex(hwx, hwy);
+  sendCursor(hq, hr);
 });
 
 function endPointer(e) {
@@ -568,6 +645,35 @@ document.getElementById("noteSave").onclick = () => {
   toast(note ? "Note saved" : "Note removed");
   draw();
 };
+
+// --- presence ---
+
+let prevUsers = null;
+
+function renderPresence(users) {
+  document.title = `Hexmapper — ${users.length} online`;
+  const counts = new Map();
+  users.forEach((u) => counts.set(u, (counts.get(u) || 0) + 1));
+  if (prevUsers) {
+    const before = new Map();
+    prevUsers.forEach((u) => before.set(u, (before.get(u) || 0) + 1));
+    for (const [u, n] of counts) {
+      if (n > (before.get(u) || 0)) toast(`${u} joined`);
+    }
+    for (const [u, n] of before) {
+      if (n > (counts.get(u) || 0)) toast(`${u} left`);
+    }
+  }
+  prevUsers = users;
+  document.getElementById("presence").innerHTML =
+    [...counts]
+      .map(
+        ([u, n]) =>
+          `<div><span class="dot" style="color:${nameColor(u)}">●</span>` +
+          `${esc(u)}${n > 1 ? ` ×${n}` : ""}</div>`
+      )
+      .join("") || "nobody";
+}
 
 // --- history feed ---
 
