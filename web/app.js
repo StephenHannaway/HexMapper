@@ -19,6 +19,7 @@ const state = {
   ws: null,
   role: "dm",
   party: null, // {q, r} shared party position
+  hadSnapshot: false,
 };
 
 const key = (q, r) => `${q},${r}`;
@@ -163,7 +164,8 @@ function connect() {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
-      const firstLoad = !state.hexes.size;
+      const firstLoad = !state.hadSnapshot;
+      state.hadSnapshot = true;
       state.hexes.clear();
       msg.hexes.forEach(applyHex);
       state.party = msg.party || null;
@@ -383,12 +385,20 @@ function zoomAtCenter(factor) {
   draw();
 }
 
+const TOOL_KEYS = { p: "pan", b: "paint", i: "icon", n: "note", m: "party", r: "remove" };
+const helpOverlay = document.getElementById("helpOverlay");
+helpOverlay.onclick = () => { helpOverlay.hidden = true; };
+
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !notePanel.hidden) {
-    closeNotePanel();
-    return;
+  if (e.key === "Escape") {
+    if (!helpOverlay.hidden) { helpOverlay.hidden = true; return; }
+    if (!notePanel.hidden) { closeNotePanel(); return; }
   }
   if (isTyping()) return;
+  if (e.key === "?") {
+    helpOverlay.hidden = !helpOverlay.hidden;
+    return;
+  }
   if (e.key === " ") {
     spaceHeld = true;
     e.preventDefault();
@@ -396,7 +406,13 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "+" || e.key === "=") { zoomAtCenter(1.15); return; }
   if (e.key === "-" || e.key === "_") { zoomAtCenter(1 / 1.15); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (TOOL_KEYS[k]) {
+    setTool(TOOL_KEYS[k]);
+    return;
+  }
+  if (k === "c") { fitView(); return; }
   if (PAN_KEYS[k]) {
     e.preventDefault();
     if (!heldKeys.size) requestAnimationFrame(panLoop);
@@ -586,6 +602,7 @@ document.getElementById("panBtn").onclick = () => setTool("pan");
 document.getElementById("centerBtn").onclick = fitView;
 document.getElementById("paintBtn").onclick = () => setTool("paint");
 document.getElementById("iconBtn").onclick = () => setTool("icon");
+document.getElementById("partyBtn").onclick = () => setTool("party");
 document.getElementById("removeBtn").onclick = () => setTool("remove");
 document.getElementById("layerBtn").onclick = () =>
   send({ op: "add_layer", terrain: state.terrain });
