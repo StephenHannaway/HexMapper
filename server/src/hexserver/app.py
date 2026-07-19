@@ -56,7 +56,7 @@ class KeyGateMiddleware(BaseHTTPMiddleware):
                 "<h1>This map is private</h1><p>Ask your DM for the invite link.</p>",
                 status_code=403,
             )
-        if query_key and not cookie:
+        if query_key and query_key != cookie:
             response: Response = RedirectResponse(request.url.path)
             response.set_cookie(
                 "mapkey", query_key, max_age=365 * 24 * 3600, httponly=True

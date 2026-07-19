@@ -143,3 +143,13 @@ def test_import_broadcasts_snapshot(client: TestClient) -> None:
         msg = ws.receive_json()
         assert msg["type"] == "snapshot"
         assert len(msg["hexes"]) == 2
+
+
+def test_query_key_replaces_stale_cookie(client: TestClient) -> None:
+    r = client.get(
+        "/api/config?key=dm-key",
+        headers={"cookie": "mapkey=player-key"},
+        follow_redirects=False,
+    )
+    assert r.status_code in (302, 307)
+    assert "mapkey=dm-key" in r.headers["set-cookie"]
