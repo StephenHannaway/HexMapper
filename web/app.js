@@ -17,6 +17,7 @@ const state = {
   offsetY: 0,
   scale: 1.5,
   ws: null,
+  role: "dm",
 };
 
 const key = (q, r) => `${q},${r}`;
@@ -377,6 +378,10 @@ async function init() {
   const cfg = await (await fetch("/api/config")).json();
   state.terrains = cfg.terrains;
   state.icons = cfg.icons;
+  state.role = cfg.role || "dm";
+  document.querySelectorAll(".dm-only").forEach((el) => {
+    el.style.display = state.role === "dm" ? "" : "none";
+  });
 
   const grid = document.getElementById("terrainGrid");
   for (const [name, color] of Object.entries(cfg.terrains)) {

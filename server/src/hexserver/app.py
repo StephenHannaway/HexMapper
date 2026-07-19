@@ -24,19 +24,25 @@ ASSETS_DIR = Path(
 DB_PATH = Path(os.environ.get("HEXMAP_DB", REPO_ROOT / "server" / "map.db"))
 SEED_FILE = Path(os.environ.get("HEXMAP_SEED", REPO_ROOT / "map.hexmap2"))
 MAP_KEY = os.environ.get("HEXMAP_KEY", "")
+DM_KEY = os.environ.get("HEXMAP_DM_KEY", "")
 
 app = FastAPI(title="hexserver")
 store = MapStore(DB_PATH, seed_file=SEED_FILE)
 lock = asyncio.Lock()
 
 
-def _key_ok(cookie: str | None, query_key: str | None) -> bool:
+def role_for(cookie: str | None, query_key: str | None) -> str | None:
+    # "dm" | "player" | None (rejected). With no DM key configured everyone
+    # who passes the gate is a DM, preserving pre-role behaviour.
+    candidates = [c for c in (cookie, query_key) if c]
+    if DM_KEY and any(secrets.compare_digest(c, DM_KEY) for c in candidates):
+        return "dm"
+    full_access = "player" if DM_KEY else "dm"
     if not MAP_KEY:
-        return True
-    for candidate in (cookie, query_key):
-        if candidate and secrets.compare_digest(candidate, MAP_KEY):
-            return True
-    return False
+        return full_access
+    if any(secrets.compare_digest(c, MAP_KEY) for c in candidates):
+        return full_access
+    return None
 
 
 class KeyGateMiddleware(BaseHTTPMiddleware):
@@ -45,7 +51,7 @@ class KeyGateMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         cookie = request.cookies.get("mapkey")
         query_key = request.query_params.get("key")
-        if not _key_ok(cookie, query_key):
+        if role_for(cookie, query_key) is None:
             return HTMLResponse(
                 "<h1>This map is private</h1><p>Ask your DM for the invite link.</p>",
                 status_code=403,
@@ -59,8 +65,7 @@ class KeyGateMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-if MAP_KEY:
-    app.add_middleware(KeyGateMiddleware)
+app.add_middleware(KeyGateMiddleware)
 
 
 class Hub:
@@ -83,13 +88,16 @@ hub = Hub()
 
 
 @app.get("/api/config")
-async def get_config() -> JSONResponse:
+async def get_config(request: Request) -> JSONResponse:
     return JSONResponse(
         {
             "terrains": TERRAINS,
             "icons": [
                 {"name": name, "url": f"/assets/{path}"} for name, path in ICONS.items()
             ],
+            "role": role_for(
+                request.cookies.get("mapkey"), request.query_params.get("key")
+            ),
         }
     )
 
@@ -108,7 +116,8 @@ async def export_map() -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
-    if not _key_ok(ws.cookies.get("mapkey"), ws.query_params.get("key")):
+    role = role_for(ws.cookies.get("mapkey"), ws.query_params.get("key"))
+    if role is None:
         await ws.close(code=4403)
         return
     await ws.accept()
@@ -121,7 +130,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             op = msg.get("op")
             async with lock:
                 try:
-                    out = apply_op(op, msg)
+                    out = apply_op(op, msg, role)
                 except Exception as e:
                     logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
@@ -138,7 +147,12 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.broadcast({"type": "presence", "users": hub.names()})
 
 
-def apply_op(op: str | None, msg: dict[str, Any]) -> dict[str, Any] | None:
+DM_OPS = {"clear_all"}
+
+
+def apply_op(op: str | None, msg: dict[str, Any], role: str) -> dict[str, Any] | None:
+    if op in DM_OPS and role != "dm":
+        raise PermissionError("Only the DM can do that")
     if op == "hello":
         return None
     if op == "set_hex":
