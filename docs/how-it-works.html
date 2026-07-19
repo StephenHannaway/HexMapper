@@ -1,0 +1,259 @@
+<title>Hexmapper — How It All Clicks Together</title>
+<style>
+  :root {
+    --paper: #f6f5f0;
+    --ink: #23281f;
+    --muted: #5c6355;
+    --accent: #2e7d4f;
+    --accent-ink: #1d5c38;
+    --lake: #23608f;
+    --card: #ffffff;
+    --line: #d9dbd0;
+    --code-bg: #eceee5;
+    --code-ink: #2b3226;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #16190f;
+      --ink: #e4e6da;
+      --muted: #9aa18d;
+      --accent: #5cb884;
+      --accent-ink: #7ccf9d;
+      --lake: #6aaede;
+      --card: #1e2216;
+      --line: #333928;
+      --code-bg: #232818;
+      --code-ink: #d4dcc2;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #16190f; --ink: #e4e6da; --muted: #9aa18d; --accent: #5cb884;
+    --accent-ink: #7ccf9d; --lake: #6aaede; --card: #1e2216; --line: #333928;
+    --code-bg: #232818; --code-ink: #d4dcc2;
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f5f0; --ink: #23281f; --muted: #5c6355; --accent: #2e7d4f;
+    --accent-ink: #1d5c38; --lake: #23608f; --card: #ffffff; --line: #d9dbd0;
+    --code-bg: #eceee5; --code-ink: #2b3226;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.65 "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    padding: 3rem 1.25rem 5rem;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  header { margin-bottom: 3rem; }
+  .hexrow { display: flex; gap: 6px; margin-bottom: 1.25rem; }
+  .hexrow span {
+    width: 22px; height: 25px; display: inline-block;
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+  h1 {
+    font-size: 2rem; font-weight: 650; letter-spacing: -0.02em;
+    line-height: 1.2; margin: 0 0 0.5rem; text-wrap: balance;
+  }
+  .sub { color: var(--muted); margin: 0; max-width: 40rem; }
+  .eyebrow {
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent-ink); margin: 3rem 0 0.25rem;
+  }
+  h2 {
+    font-size: 1.35rem; font-weight: 650; letter-spacing: -0.01em;
+    margin: 0 0 0.75rem; text-wrap: balance;
+  }
+  h3 { font-size: 1.02rem; font-weight: 650; margin: 1.5rem 0 0.4rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--lake); }
+  code, pre {
+    font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+    font-size: 0.88em;
+  }
+  code { background: var(--code-bg); color: var(--code-ink); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    padding: 0.85rem 1rem; border-radius: 8px; overflow-x: auto;
+    line-height: 1.55; margin: 0 0 1rem;
+  }
+  pre code { background: none; padding: 0; }
+  table {
+    border-collapse: collapse; width: 100%; margin: 0 0 1rem;
+    font-size: 0.92rem;
+  }
+  th, td { text-align: left; padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; }
+  td:first-child { white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.1rem 1.25rem; margin: 0 0 1rem;
+  }
+  .card p:last-child { margin-bottom: 0; }
+  .diagram { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; overflow-x: auto; margin: 0 0 1rem; }
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 0 0 1rem; }
+  .steps li {
+    counter-increment: step; position: relative; padding: 0 0 0.9rem 2.4rem;
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 0.1em;
+    width: 1.55em; height: 1.75em; display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: var(--paper); font-size: 0.8rem; font-weight: 650;
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+  .note { border-left: 3px solid var(--accent); padding: 0.15rem 0 0.15rem 1rem; color: var(--muted); margin: 0 0 1rem; }
+  ul { padding-left: 1.25rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.3rem; }
+</style>
+
+<main>
+<header>
+  <div class="hexrow">
+    <span style="background:#7cfc00"></span><span style="background:#0077ff"></span>
+    <span style="background:#228b22"></span><span style="background:#829696"></span>
+    <span style="background:#e0e0e0"></span><span style="background:#ffd232"></span>
+  </div>
+  <h1>Hexmapper: how it all clicks together</h1>
+  <p class="sub">The shared West Marches world map — what each piece does, how an
+  edit travels from one player's click to everyone's screen, and how to change
+  the app safely in the future.</p>
+</header>
+
+<p class="eyebrow">Part I</p>
+<h2>The big picture</h2>
+<p>One small Python server owns the map. Every player's browser is a thin canvas
+client connected to it over a WebSocket. There is exactly one copy of the truth —
+the SQLite file on the Fly.io volume — and everything else is a view of it.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+    subgraph Players
+      B1["Browser tab<br/>(canvas + app.js)"]
+      B2["Browser tab<br/>(canvas + app.js)"]
+    end
+    subgraph Fly["Fly.io — hexmapper-west-marches (London)"]
+      GATE["Invite-key gate<br/>?key=… → cookie"]
+      API["FastAPI server<br/>server/src/hexserver"]
+      DB[("SQLite map.db<br/>on 1 GB volume")]
+    end
+    B1 -- "WebSocket ops" --> GATE
+    B2 -- "WebSocket ops" --> GATE
+    GATE --> API
+    API -- "broadcast to all" --> B1
+    API -- "broadcast to all" --> B2
+    API --> DB
+</pre>
+</div>
+
+<p>The original pygame desktop app still lives in <code>src/hexmapper/</code> and is
+untouched — the web version reuses its map model (a dictionary of hexes keyed by
+axial coordinates <code>q, r</code>), its 19 terrain colours, its icon PNGs, and its
+<code>.hexmap</code> save format, so maps can move between the two.</p>
+
+<p class="eyebrow">Part II</p>
+<h2>What lives where</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Path</th><th>What it is</th></tr>
+  <tr><td><code>web/index.html</code></td><td>The whole UI: sidebar, terrain palette, tool buttons, styles.</td></tr>
+  <tr><td><code>web/app.js</code></td><td>The client. Hex math, canvas rendering, pan/zoom, tools, and the WebSocket sync logic. No framework, no build step — edit and refresh.</td></tr>
+  <tr><td><code>server/src/hexserver/app.py</code></td><td>FastAPI app: serves the web files and icons, the REST snapshot/export endpoints, the WebSocket hub that validates and broadcasts edits, and the invite-key gate.</td></tr>
+  <tr><td><code>server/src/hexserver/store.py</code></td><td>All map state and SQLite persistence. Every edit type (<code>set_hex</code>, <code>set_icon</code>, <code>remove_hex</code>, <code>add_layer</code>, <code>clear_all</code>) is a method here.</td></tr>
+  <tr><td><code>server/src/hexserver/config.py</code></td><td>Terrain names/colours and the icon list. The client fetches these at load — change them here and every browser picks them up.</td></tr>
+  <tr><td><code>server/tests/</code></td><td>pytest suite for the store logic.</td></tr>
+  <tr><td><code>src/hexmapper/assets/</code></td><td>The icon PNGs (village, tower, ruin…). Shared by desktop and web.</td></tr>
+  <tr><td><code>Dockerfile</code> + <code>fly.toml</code></td><td>How the app is packaged and where it runs.</td></tr>
+</table>
+</div>
+
+<p class="eyebrow">Part III</p>
+<h2>How one edit travels</h2>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+    participant P as Player's browser
+    participant S as FastAPI server
+    participant D as SQLite
+    participant O as Everyone else
+    P->>P: paint hex locally (instant feedback)
+    P->>S: {op: "set_hex", q, r, terrain}
+    S->>S: validate terrain + op
+    S->>D: write hex, bump version
+    S->>O: broadcast op + version
+    S->>P: broadcast op + version (confirms)
+</pre>
+</div>
+<p>Conflicts are resolved per hex, last write wins — fine at party scale. If a
+browser drops offline it reconnects automatically and asks for a full snapshot,
+so nobody can get permanently out of sync. Invalid or unknown ops get an error
+frame back instead of crashing the connection.</p>
+
+<p class="eyebrow">Part IV</p>
+<h2>Making changes in the future</h2>
+
+<h3>The development loop</h3>
+<ol class="steps">
+  <li><strong>Run it locally.</strong>
+    <pre>cd server
+uv run uvicorn hexserver.app:app --app-dir src --port 8321</pre>
+    Open <code>http://127.0.0.1:8321</code>. Locally there is no key gate and the
+    map is a throwaway local database — break things freely.</li>
+  <li><strong>Edit.</strong> Client changes (<code>web/</code>) need only a browser
+    refresh. Server changes need a restart of the command above.</li>
+  <li><strong>Test and check.</strong>
+    <pre>cd server
+uv run pytest tests
+uv run ruff check src tests
+uv run mypy --strict src/hexserver</pre></li>
+  <li><strong>Commit</strong> with a conventional message (<code>feat:</code>,
+    <code>fix:</code>, …) — pre-commit hooks enforce formatting.</li>
+  <li><strong>Deploy.</strong> With Docker Desktop running:
+    <pre>~/.fly/bin/flyctl deploy --local-only --ha=false</pre>
+    Fly builds the image, swaps the machine, and the party sees the new version
+    on their next page load. The map database lives on the volume, so deploys
+    never touch it.</li>
+</ol>
+
+<h3>Common recipes</h3>
+<div class="card">
+  <p><strong>Add a terrain type</strong> — add one line to <code>TERRAINS</code> in
+  <code>server/src/hexserver/config.py</code> (name + hex colour). The palette in
+  every browser updates on next load. Add the same entry to the desktop app's
+  <code>Terrain</code> enum if you want desktop compatibility.</p>
+</div>
+<div class="card">
+  <p><strong>Add a map icon</strong> — drop a PNG into
+  <code>src/hexmapper/assets/</code> and add an entry to <code>ICONS</code> in the
+  server's <code>config.py</code>. Redeploy.</p>
+</div>
+<div class="card">
+  <p><strong>Rotate the invite link</strong> (if it leaks):
+  <code>flyctl secrets set HEXMAP_KEY=&lt;new-secret&gt; -a hexmapper-west-marches</code>.
+  Old links and cookies stop working immediately; share the new
+  <code>?key=…</code> link. The current key is saved at
+  <code>~/.hexmap-invite-key.txt</code>.</p>
+</div>
+<div class="card">
+  <p><strong>Back up the world</strong> — the Export .hexmap button downloads the
+  live map; keep one before big sessions. Fly also snapshots the volume daily
+  (five kept). The exported file opens in the desktop editor too.</p>
+</div>
+<div class="card">
+  <p><strong>See what the server is doing</strong> —
+  <code>flyctl logs -a hexmapper-west-marches</code> tails live logs, including
+  any failed-op tracebacks.</p>
+</div>
+
+<h3>Where it runs</h3>
+<ul>
+  <li><strong>URL:</strong> hexmapper-west-marches.fly.dev (players need the <code>?key=…</code> invite link once; a year-long cookie does the rest).</li>
+  <li><strong>Machine:</strong> one 256 MB instance in London that stops itself when nobody is connected and wakes on the next visit — expect roughly $1–2/month.</li>
+  <li><strong>Storage:</strong> 1 GB volume at <code>/data/map.db</code>, survives every deploy and restart.</li>
+</ul>
+
+<p class="note">Not built yet, by choice: DM-only permissions (anyone can Clear all —
+the two-click confirm is the only guard), a map import endpoint, hex notes, and
+fog-of-war reveal mechanics. The design doc for the full plan is in
+<code>docs/superpowers/specs/</code>.</p>
+</main>
