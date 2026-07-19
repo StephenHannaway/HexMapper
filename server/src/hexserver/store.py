@@ -27,6 +27,9 @@ class MapStore:
             "id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "ts REAL, player TEXT, op TEXT, detail TEXT)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
+        )
         self.version = 0
         if seed_file is not None and self.count() == 0 and seed_file.exists():
             self.import_hexmap(json.loads(seed_file.read_text()))
@@ -41,6 +44,7 @@ class MapStore:
         ).fetchall()
         return {
             "version": self.version,
+            "party": self.party(),
             "hexes": [
                 {
                     "q": q,
@@ -115,6 +119,22 @@ class MapStore:
         self.db.execute("DELETE FROM hexes")
         self.db.execute(
             "INSERT INTO hexes (q, r, terrain, icon) VALUES (0, 0, 'FOG', NULL)"
+        )
+        self.db.commit()
+        self.version += 1
+
+    def party(self) -> dict[str, Any] | None:
+        row = self.db.execute("SELECT value FROM meta WHERE key = 'party'").fetchone()
+        if row is None:
+            return None
+        loaded: dict[str, Any] = json.loads(row[0])
+        return loaded
+
+    def set_party(self, q: int, r: int) -> None:
+        self.db.execute(
+            "INSERT INTO meta (key, value) VALUES ('party', ?) "
+            "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (json.dumps({"q": q, "r": r}),),
         )
         self.db.commit()
         self.version += 1

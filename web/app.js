@@ -18,6 +18,7 @@ const state = {
   scale: 1.5,
   ws: null,
   role: "dm",
+  party: null, // {q, r} shared party position
 };
 
 const key = (q, r) => `${q},${r}`;
@@ -84,6 +85,21 @@ function draw() {
       ctx.stroke();
     }
   }
+  if (state.party) {
+    const [wx, wy] = hexToPixel(state.party.q, state.party.r);
+    const sx = wx * state.scale + state.offsetX;
+    const sy = wy * state.scale + state.offsetY;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size * 0.6, 0, Math.PI * 2);
+    ctx.strokeStyle = "#000000aa";
+    ctx.lineWidth = Math.max(4, size * 0.22);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(sx, sy, size * 0.6, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffd54a";
+    ctx.lineWidth = Math.max(2, size * 0.12);
+    ctx.stroke();
+  }
 }
 
 function resize() {
@@ -116,6 +132,7 @@ function connect() {
       const firstLoad = !state.hexes.size;
       state.hexes.clear();
       msg.hexes.forEach(applyHex);
+      state.party = msg.party || null;
       state.version = msg.version;
       if (firstLoad) fitView();
       if (msg.action) {
@@ -139,6 +156,8 @@ function connect() {
           cell.note_author = msg.note_author;
           refreshNotePanel(msg.q, msg.r);
         }
+      } else if (msg.op === "set_party") {
+        state.party = { q: msg.q, r: msg.r };
       } else if (msg.op === "set_icon") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) cell.icon = msg.icon;
@@ -185,6 +204,10 @@ function editAt(clientX, clientY) {
 
   if (state.tool === "note") {
     openNotePanel(q, r);
+  } else if (state.tool === "party") {
+    state.party = { q, r };
+    send({ op: "set_party", q, r });
+    toast(`Party moved to ${q},${r}`);
   } else if (state.tool === "remove") {
     if (cell) {
       state.hexes.delete(k);
@@ -383,7 +406,7 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
@@ -461,6 +484,7 @@ function opText(e) {
     case "set_icon": return d.icon ? `placed ${d.icon} at${at}` : `cleared the icon at${at}`;
     case "remove_hex": return `removed hex${at}`;
     case "set_note": return `wrote a note on${at}`;
+    case "set_party": return `moved the party to${at}`;
     case "add_layer": case "apply_hexes": return "added a ring of hexes";
     case "clear_all": return "cleared the map";
     case "import": return "restored a map";

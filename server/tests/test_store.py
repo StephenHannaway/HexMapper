@@ -138,3 +138,14 @@ def test_ops_table_pruned(store: MapStore) -> None:
     row = store.db.execute("SELECT COUNT(*) FROM ops").fetchone()
     assert row[0] <= 1000
     assert store.history(1)[0]["detail"]["q"] == 1099
+
+
+def test_party_defaults_to_none(store: MapStore) -> None:
+    assert store.snapshot()["party"] is None
+
+
+def test_set_party_and_snapshot(store: MapStore) -> None:
+    store.set_party(3, -2)
+    assert store.snapshot()["party"] == {"q": 3, "r": -2}
+    store.set_party(4, -2)
+    assert store.snapshot()["party"] == {"q": 4, "r": -2}

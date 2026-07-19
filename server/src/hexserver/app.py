@@ -240,6 +240,16 @@ def apply_op(
             "r": r,
             **result,
         }
+    if op == "set_party":
+        q, r = int(msg["q"]), int(msg["r"])
+        store.set_party(q, r)
+        return {
+            "type": "op",
+            "op": "set_party",
+            "version": store.version,
+            "q": q,
+            "r": r,
+        }
     if op == "add_layer":
         added = store.add_layer(str(msg["terrain"]))
         return {

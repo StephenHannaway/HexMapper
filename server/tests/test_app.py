@@ -203,3 +203,13 @@ def test_import_is_logged(client: TestClient) -> None:
     assert client.post("/api/map/import", json=HEXMAP, headers=DM).status_code == 200
     entries = client.get("/api/history", headers=DM).json()["ops"]
     assert entries[0]["op"] == "import"
+
+
+def test_set_party_broadcasts(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_party", "q": 2, "r": 2})
+        msg = ws.receive_json()
+        assert msg["op"] == "set_party"
+        assert (msg["q"], msg["r"]) == (2, 2)
+    assert app_module.store.snapshot()["party"] == {"q": 2, "r": 2}
