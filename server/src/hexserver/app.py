@@ -80,7 +80,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
             async with lock:
                 try:
                     out = apply_op(op, msg)
-                except (ValueError, KeyError, TypeError) as e:
+                except Exception as e:
+                    logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
                     continue
             if op == "hello":

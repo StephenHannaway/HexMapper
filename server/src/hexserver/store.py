@@ -64,7 +64,7 @@ class MapStore:
             (q, r) for q, r in self.db.execute("SELECT q, r FROM hexes").fetchall()
         }
         added: list[dict[str, Any]] = []
-        for q, r in existing:
+        for q, r in list(existing):
             for dq, dr in NEIGHBOURS:
                 nq, nr = q + dq, r + dr
                 if (nq, nr) not in existing:
