@@ -111,3 +111,30 @@ def test_migrates_old_db(tmp_path: Path) -> None:
     store.set_note(0, 0, "migrated", "steph")
     (cell,) = store.snapshot()["hexes"]
     assert cell["note"] == "migrated"
+
+
+def test_log_op_and_history(store: MapStore) -> None:
+    store.log_op("steph", "set_hex", {"q": 0, "r": 0, "terrain": "FOG"})
+    store.log_op("ines", "remove_hex", {"q": 1, "r": 1})
+    hist = store.history(10)
+    assert len(hist) == 2
+    assert hist[0]["player"] == "ines"
+    assert hist[0]["op"] == "remove_hex"
+    assert hist[0]["detail"] == {"q": 1, "r": 1}
+    assert hist[1]["player"] == "steph"
+    assert isinstance(hist[0]["ts"], float)
+
+
+def test_history_limit(store: MapStore) -> None:
+    for i in range(5):
+        store.log_op("steph", "set_hex", {"q": i, "r": 0, "terrain": "FOG"})
+    assert len(store.history(3)) == 3
+    assert store.history(3)[0]["detail"]["q"] == 4
+
+
+def test_ops_table_pruned(store: MapStore) -> None:
+    for i in range(1100):
+        store.log_op("steph", "set_hex", {"q": i, "r": 0, "terrain": "FOG"})
+    row = store.db.execute("SELECT COUNT(*) FROM ops").fetchone()
+    assert row[0] <= 1000
+    assert store.history(1)[0]["detail"]["q"] == 1099

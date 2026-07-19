@@ -118,6 +118,11 @@ function connect() {
       msg.hexes.forEach(applyHex);
       state.version = msg.version;
       if (firstLoad) fitView();
+      if (msg.action) {
+        addHistory({
+          ts: Date.now() / 1000, player: msg.by || "someone", op: msg.action, detail: {},
+        });
+      }
     } else if (msg.type === "op") {
       if (msg.op === "set_hex") {
         const existing = state.hexes.get(key(msg.q, msg.r));
@@ -143,9 +148,15 @@ function connect() {
         msg.hexes.forEach(applyHex);
       }
       state.version = msg.version;
+      addHistory({
+        ts: Date.now() / 1000,
+        player: msg.by || "someone",
+        op: msg.op,
+        detail: { q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon },
+      });
     } else if (msg.type === "presence") {
       document.getElementById("presence").innerHTML = msg.users
-        .map((u) => `<div><span class="dot">●</span>${u}</div>`)
+        .map((u) => `<div><span class="dot">●</span>${esc(u)}</div>`)
         .join("") || "nobody";
     } else if (msg.type === "error") {
       toast(msg.detail);
@@ -432,6 +443,62 @@ document.getElementById("noteSave").onclick = () => {
   draw();
 };
 
+// --- history feed ---
+
+const historyEntries = [];
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+function opText(e) {
+  const d = e.detail || {};
+  const at = d.q !== undefined ? ` ${d.q},${d.r}` : "";
+  switch (e.op) {
+    case "set_hex":
+      if (e.count > 1) return `painted ${e.count} hexes ${(d.terrain || "").toLowerCase()}`;
+      return `painted${at} ${(d.terrain || "").toLowerCase()}`;
+    case "set_icon": return d.icon ? `placed ${d.icon} at${at}` : `cleared the icon at${at}`;
+    case "remove_hex": return `removed hex${at}`;
+    case "set_note": return `wrote a note on${at}`;
+    case "add_layer": case "apply_hexes": return "added a ring of hexes";
+    case "clear_all": return "cleared the map";
+    case "import": return "restored a map";
+    default: return e.op;
+  }
+}
+
+function timeAgo(ts) {
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function renderHistory() {
+  document.getElementById("history").innerHTML = historyEntries.slice(0, 8)
+    .map((e) => `<div><b>${esc(e.player)}</b> ${esc(opText(e))} · ${timeAgo(e.ts)}</div>`)
+    .join("") || "nothing yet";
+}
+
+function addHistory(entry) {
+  const top = historyEntries[0];
+  if (top && entry.op === "set_hex" && top.op === "set_hex" &&
+      top.player === entry.player && entry.ts - top.ts < 120) {
+    top.count = (top.count || 1) + 1;
+    top.ts = entry.ts;
+    top.detail = entry.detail;
+    renderHistory();
+    return;
+  }
+  historyEntries.unshift(entry);
+  if (historyEntries.length > 30) historyEntries.length = 30;
+  renderHistory();
+}
+
+setInterval(renderHistory, 60000);
+
 function setStatus(text) {
   document.getElementById("status").textContent = text;
 }
@@ -572,6 +639,13 @@ async function init() {
   state.offsetY = canvas.clientHeight * devicePixelRatio / 2;
   resize();
   connect();
+
+  fetch("/api/history")
+    .then((r) => r.json())
+    .then((h) => {
+      historyEntries.push(...h.ops);
+      renderHistory();
+    });
 }
 
 window.addEventListener("resize", resize);

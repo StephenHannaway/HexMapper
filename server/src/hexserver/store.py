@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,11 @@ class MapStore:
             self.db.execute("ALTER TABLE hexes ADD COLUMN note TEXT")
             self.db.execute("ALTER TABLE hexes ADD COLUMN note_author TEXT")
             self.db.commit()
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS ops ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "ts REAL, player TEXT, op TEXT, detail TEXT)"
+        )
         self.version = 0
         if seed_file is not None and self.count() == 0 and seed_file.exists():
             self.import_hexmap(json.loads(seed_file.read_text()))
@@ -112,6 +118,24 @@ class MapStore:
         )
         self.db.commit()
         self.version += 1
+
+    def log_op(self, player: str, op: str, detail: dict[str, Any]) -> None:
+        self.db.execute(
+            "INSERT INTO ops (ts, player, op, detail) VALUES (?, ?, ?, ?)",
+            (time.time(), player, op, json.dumps(detail)),
+        )
+        self.db.execute("DELETE FROM ops WHERE id <= (SELECT MAX(id) FROM ops) - 1000")
+        self.db.commit()
+
+    def history(self, limit: int) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT ts, player, op, detail FROM ops ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {"ts": ts, "player": player, "op": op, "detail": json.loads(detail)}
+            for ts, player, op, detail in rows
+        ]
 
     def import_hexmap(self, data: dict[str, Any]) -> None:
         self.db.execute("DELETE FROM hexes")

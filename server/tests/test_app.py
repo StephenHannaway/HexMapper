@@ -173,3 +173,33 @@ def test_set_note_on_missing_hex_errors(client: TestClient) -> None:
         assert ws.receive_json()["type"] == "snapshot"
         ws.send_json({"op": "set_note", "q": 9, "r": 9, "note": "ghost"})
         assert ws.receive_json()["type"] == "error"
+
+
+def test_ops_logged_and_served(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "hello", "name": "steph"})
+        assert ws.receive_json()["type"] == "presence"
+        ws.send_json({"op": "set_hex", "q": 1, "r": 2, "terrain": "FOREST"})
+        msg = ws.receive_json()
+        assert msg["by"] == "steph"
+    entries = client.get("/api/history", headers=PLAYER).json()["ops"]
+    assert entries[0]["player"] == "steph"
+    assert entries[0]["op"] == "set_hex"
+    assert entries[0]["detail"] == {"q": 1, "r": 2, "terrain": "FOREST"}
+
+
+def test_clear_all_snapshot_tagged(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOG")
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "clear_all"})
+        msg = ws.receive_json()
+        assert msg["type"] == "snapshot"
+        assert msg["action"] == "clear_all"
+
+
+def test_import_is_logged(client: TestClient) -> None:
+    assert client.post("/api/map/import", json=HEXMAP, headers=DM).status_code == 200
+    entries = client.get("/api/history", headers=DM).json()["ops"]
+    assert entries[0]["op"] == "import"

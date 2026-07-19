@@ -114,6 +114,12 @@ async def export_map() -> JSONResponse:
         return JSONResponse(store.export_hexmap())
 
 
+@app.get("/api/history")
+async def get_history(limit: int = 50) -> JSONResponse:
+    async with lock:
+        return JSONResponse({"ops": store.history(min(limit, 200))})
+
+
 @app.post("/api/map/import")
 async def import_map(request: Request) -> JSONResponse:
     role = role_for(request.cookies.get("mapkey"), request.query_params.get("key"))
@@ -130,8 +136,11 @@ async def import_map(request: Request) -> JSONResponse:
         )
     async with lock:
         store.import_hexmap(data)
+        store.log_op("the DM", "import", {"hexes": len(hexes)})
         snap = store.snapshot()
-    await hub.broadcast({"type": "snapshot", **snap})
+    await hub.broadcast(
+        {"type": "snapshot", "action": "import", "by": "the DM", **snap}
+    )
     return JSONResponse({"ok": True, "hexes": len(snap["hexes"])})
 
 
@@ -149,13 +158,21 @@ async def ws_endpoint(ws: WebSocket) -> None:
         while True:
             msg = json.loads(await ws.receive_text())
             op = msg.get("op")
+            author = hub.clients.get(ws, "anonymous")
             async with lock:
                 try:
-                    out = apply_op(op, msg, role, hub.clients.get(ws, "anonymous"))
+                    out = apply_op(op, msg, role, author)
                 except Exception as e:
                     logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
                     continue
+                if out is not None:
+                    out["by"] = author
+                    store.log_op(
+                        author,
+                        str(op),
+                        {k: msg[k] for k in ("q", "r", "terrain", "icon") if k in msg},
+                    )
             if op == "hello":
                 hub.clients[ws] = str(msg.get("name") or "anonymous")[:32]
                 await hub.broadcast({"type": "presence", "users": hub.names()})
@@ -233,7 +250,7 @@ def apply_op(
         }
     if op == "clear_all":
         store.clear_all()
-        return {"type": "snapshot", **store.snapshot()}
+        return {"type": "snapshot", "action": "clear_all", **store.snapshot()}
     raise ValueError(f"unknown op {op!r}")
 
 
