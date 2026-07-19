@@ -375,10 +375,6 @@ importInput.onchange = async () => {
   const out = await res.json().catch(() => ({}));
   toast(res.ok ? `Imported ${out.hexes} hexes` : out.detail || "Import failed");
 };
-document.getElementById("iconSelect").onchange = (e) => {
-  state.icon = e.target.value || null;
-  if (state.icon) setTool("icon");
-};
 
 // --- init ---
 
@@ -420,16 +416,33 @@ async function init() {
     grid.appendChild(btn);
   }
 
-  const sel = document.getElementById("iconSelect");
+  const iconGrid = document.getElementById("iconGrid");
   for (const icon of cfg.icons) {
-    const opt = document.createElement("option");
-    opt.value = icon.name;
-    opt.textContent = icon.name;
-    sel.appendChild(opt);
     const img = new Image();
     img.src = icon.url;
     img.onload = draw;
     state.iconImages.set(icon.name, img);
+
+    const btn = document.createElement("button");
+    btn.title = icon.name;
+    const thumb = document.createElement("img");
+    thumb.src = icon.url;
+    thumb.alt = icon.name;
+    btn.appendChild(thumb);
+    btn.onclick = () => {
+      if (state.icon === icon.name) {
+        state.icon = null;
+        btn.classList.remove("selected");
+        setTool("paint");
+        return;
+      }
+      state.icon = icon.name;
+      iconGrid.querySelectorAll("button").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      setTool("icon");
+      toast(icon.name);
+    };
+    iconGrid.appendChild(btn);
   }
 
   state.offsetX = canvas.clientWidth * devicePixelRatio / 2;
