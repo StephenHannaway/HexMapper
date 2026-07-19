@@ -166,7 +166,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
                     continue
-                if out is not None:
+                if out is not None and out.get("type") != "ping":
                     out["by"] = author
                     store.log_op(
                         author,
@@ -195,6 +195,8 @@ def apply_op(
         raise PermissionError("Only the DM can do that")
     if op == "hello":
         return None
+    if op == "ping":
+        return {"type": "ping", "q": int(msg["q"]), "r": int(msg["r"]), "by": author}
     if op == "set_hex":
         q, r, terrain = int(msg["q"]), int(msg["r"]), str(msg["terrain"])
         store.set_hex(q, r, terrain)

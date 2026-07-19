@@ -213,3 +213,15 @@ def test_set_party_broadcasts(client: TestClient) -> None:
         assert msg["op"] == "set_party"
         assert (msg["q"], msg["r"]) == (2, 2)
     assert app_module.store.snapshot()["party"] == {"q": 2, "r": 2}
+
+
+def test_ping_is_ephemeral(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        before = app_module.store.version
+        ws.send_json({"op": "ping", "q": 5, "r": -3})
+        msg = ws.receive_json()
+        assert msg["type"] == "ping"
+        assert (msg["q"], msg["r"]) == (5, -3)
+    assert app_module.store.version == before
+    assert app_module.store.history(10) == []

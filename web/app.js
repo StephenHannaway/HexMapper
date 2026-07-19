@@ -85,6 +85,25 @@ function draw() {
       ctx.stroke();
     }
   }
+  const now = performance.now();
+  for (let i = pings.length - 1; i >= 0; i--) {
+    const t = (now - pings[i].start) / 1500;
+    if (t > 1) {
+      pings.splice(i, 1);
+      continue;
+    }
+    const [wx, wy] = hexToPixel(pings[i].q, pings[i].r);
+    const sx = wx * state.scale + state.offsetX;
+    const sy = wy * state.scale + state.offsetY;
+    const phase = (t * 3) % 1; // three expanding pulses
+    ctx.globalAlpha = 1 - phase;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size * (0.4 + phase * 1.2), 0, Math.PI * 2);
+    ctx.strokeStyle = "#7ec8ff";
+    ctx.lineWidth = Math.max(2, size * 0.1);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
   if (state.party) {
     const [wx, wy] = hexToPixel(state.party.q, state.party.r);
     const sx = wx * state.scale + state.offsetX;
@@ -106,6 +125,21 @@ function resize() {
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
   draw();
+}
+
+// --- pings ---
+
+const pings = []; // {q, r, start} ephemeral flashes
+
+function animatePings() {
+  if (!pings.length) return;
+  draw();
+  requestAnimationFrame(animatePings);
+}
+
+function addPing(q, r) {
+  pings.push({ q, r, start: performance.now() });
+  if (pings.length === 1) requestAnimationFrame(animatePings);
 }
 
 // --- sync ---
@@ -173,6 +207,8 @@ function connect() {
         op: msg.op,
         detail: { q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon },
       });
+    } else if (msg.type === "ping") {
+      addPing(msg.q, msg.r);
     } else if (msg.type === "presence") {
       document.getElementById("presence").innerHTML = msg.users
         .map((u) => `<div><span class="dot">●</span>${esc(u)}</div>`)
@@ -396,6 +432,16 @@ function fitView() {
 }
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+canvas.addEventListener("dblclick", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const [wx, wy] = screenToWorld(
+    (e.clientX - rect.left) * devicePixelRatio,
+    (e.clientY - rect.top) * devicePixelRatio
+  );
+  const [q, r] = pixelToHex(wx, wy);
+  send({ op: "ping", q, r });
+});
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
