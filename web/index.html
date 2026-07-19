@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hexmapper — Shared World Map</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; font-family: "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; background: #1e1e1e; color: #e8e8ec; }
+  #canvas { flex: 1; min-width: 0; width: 0; display: block; cursor: crosshair; touch-action: none; }
+  #sidebar {
+    width: 232px; min-width: 232px; background: #28282d; padding: 14px;
+    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+    border-left: 1px solid #3a3a42;
+  }
+  #sidebar h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.4px; }
+  #sidebar h2 { font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1px; color: #9a9aa6; margin-top: 6px; }
+  select, button, input {
+    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #45454f;
+    background: #34343c; color: #e8e8ec; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #40404a; }
+  button.active { background: #7a3030; border-color: #a04545; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    margin-right: 6px; vertical-align: -1px; border: 1px solid #00000055; }
+  #terrainGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  #terrainGrid button { padding: 0; height: 26px; border-radius: 4px; }
+  #terrainGrid button.selected { outline: 2px solid #fff; }
+  #presence { font-size: 12px; color: #b8b8c4; line-height: 1.6; }
+  #presence .dot { color: #6dd36d; margin-right: 5px; }
+  #status { font-size: 11px; color: #8a8a96; margin-top: auto; }
+  #toast { position: fixed; left: 12px; bottom: 12px; background: #34343ccc;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; opacity: 0;
+    transition: opacity .3s; pointer-events: none; }
+</style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="sidebar">
+    <h1>Shared World Map</h1>
+    <h2>Terrain</h2>
+    <div id="terrainGrid"></div>
+    <h2>Icon</h2>
+    <select id="iconSelect"><option value="">— none —</option></select>
+    <h2>Tools</h2>
+    <button id="paintBtn" class="active">Paint terrain</button>
+    <button id="iconBtn">Place icon</button>
+    <button id="removeBtn">Remove hex</button>
+    <button id="layerBtn">Add layer (ring)</button>
+    <button id="exportBtn">Export .hexmap</button>
+    <h2>Your name</h2>
+    <input id="nameInput" type="text" maxlength="32">
+    <h2>Party online</h2>
+    <div id="presence">…</div>
+    <div id="status">connecting…</div>
+  </div>
+  <div id="toast"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

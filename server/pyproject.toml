@@ -1,0 +1,8 @@
+[project]
+name = "hexserver"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.139.2",
+    "uvicorn[standard]>=0.51.0",
+]

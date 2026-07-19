@@ -50,3 +50,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hexmapper"]
+
+[tool.uv.workspace]
+members = [
+    "server",
+]
