@@ -74,6 +74,15 @@ function draw() {
         ctx.drawImage(img, sx - s / 2, sy - s / 2, s, s);
       }
     }
+    if (cell.note) {
+      ctx.beginPath();
+      ctx.arc(sx + size * 0.5, sy - size * 0.55, Math.max(2.5, size * 0.16), 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd54a";
+      ctx.fill();
+      ctx.strokeStyle = "#00000088";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   }
 }
 
@@ -86,7 +95,7 @@ function resize() {
 // --- sync ---
 
 function applyHex(h) {
-  state.hexes.set(key(h.q, h.r), { icon: null, ...h });
+  state.hexes.set(key(h.q, h.r), { icon: null, note: null, note_author: null, ...h });
 }
 
 function connect() {
@@ -115,7 +124,16 @@ function connect() {
         state.hexes.set(key(msg.q, msg.r), {
           q: msg.q, r: msg.r, terrain: msg.terrain,
           icon: existing ? existing.icon : null,
+          note: existing ? existing.note : null,
+          note_author: existing ? existing.note_author : null,
         });
+      } else if (msg.op === "set_note") {
+        const cell = state.hexes.get(key(msg.q, msg.r));
+        if (cell) {
+          cell.note = msg.note;
+          cell.note_author = msg.note_author;
+          refreshNotePanel(msg.q, msg.r);
+        }
       } else if (msg.op === "set_icon") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) cell.icon = msg.icon;
@@ -154,7 +172,9 @@ function editAt(clientX, clientY) {
   const k = key(q, r);
   const cell = state.hexes.get(k);
 
-  if (state.tool === "remove") {
+  if (state.tool === "note") {
+    openNotePanel(q, r);
+  } else if (state.tool === "remove") {
     if (cell) {
       state.hexes.delete(k);
       send({ op: "remove_hex", q, r });
@@ -166,7 +186,12 @@ function editAt(clientX, clientY) {
     send({ op: "set_icon", q, r, icon });
   } else {
     if (cell && cell.terrain === state.terrain) return;
-    state.hexes.set(k, { q, r, terrain: state.terrain, icon: cell ? cell.icon : null });
+    state.hexes.set(k, {
+      q, r, terrain: state.terrain,
+      icon: cell ? cell.icon : null,
+      note: cell ? cell.note : null,
+      note_author: cell ? cell.note_author : null,
+    });
     send({ op: "set_hex", q, r, terrain: state.terrain });
   }
   draw();
@@ -247,7 +272,7 @@ canvas.addEventListener("pointercancel", endPointer);
 
 function isTyping() {
   const el = document.activeElement;
-  return el && (el.tagName === "INPUT" || el.tagName === "SELECT");
+  return el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA");
 }
 
 const PAN_KEYS = {
@@ -289,6 +314,10 @@ function zoomAtCenter(factor) {
 }
 
 window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !notePanel.hidden) {
+    closeNotePanel();
+    return;
+  }
   if (isTyping()) return;
   if (e.key === " ") {
     spaceHeld = true;
@@ -343,11 +372,65 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
 }
+
+// --- notes ---
+
+let noteHex = null; // {q, r} of the hex open in the note panel
+const notePanel = document.getElementById("notePanel");
+const noteText = document.getElementById("noteText");
+
+function openNotePanel(q, r) {
+  const cell = state.hexes.get(key(q, r));
+  if (!cell) {
+    toast("No hex there — notes live on painted hexes");
+    return;
+  }
+  noteHex = { q, r };
+  document.getElementById("noteTitle").textContent = `Note — hex ${q},${r}`;
+  noteText.value = cell.note || "";
+  updateNoteMeta(cell);
+  notePanel.hidden = false;
+  noteText.focus();
+}
+
+function updateNoteMeta(cell) {
+  document.getElementById("noteMeta").textContent = cell.note
+    ? `last edited by ${cell.note_author || "unknown"}`
+    : "no note yet";
+}
+
+function refreshNotePanel(q, r) {
+  if (!noteHex || noteHex.q !== q || noteHex.r !== r) return;
+  const cell = state.hexes.get(key(q, r));
+  if (!cell) return;
+  updateNoteMeta(cell);
+  if (document.activeElement !== noteText) noteText.value = cell.note || "";
+}
+
+function closeNotePanel() {
+  notePanel.hidden = true;
+  noteHex = null;
+}
+
+document.getElementById("noteBtn").onclick = () => setTool("note");
+document.getElementById("noteClose").onclick = closeNotePanel;
+document.getElementById("noteSave").onclick = () => {
+  if (!noteHex) return;
+  const cell = state.hexes.get(key(noteHex.q, noteHex.r));
+  if (!cell) return;
+  const note = noteText.value.trim();
+  cell.note = note || null;
+  cell.note_author = note ? playerName : null;
+  updateNoteMeta(cell);
+  send({ op: "set_note", q: noteHex.q, r: noteHex.r, note });
+  toast(note ? "Note saved" : "Note removed");
+  draw();
+};
 
 function setStatus(text) {
   document.getElementById("status").textContent = text;

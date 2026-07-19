@@ -153,3 +153,23 @@ def test_query_key_replaces_stale_cookie(client: TestClient) -> None:
     )
     assert r.status_code in (302, 307)
     assert "mapkey=dm-key" in r.headers["set-cookie"]
+
+
+def test_set_note_broadcasts_with_author(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOG")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "hello", "name": "steph"})
+        assert ws.receive_json()["type"] == "presence"
+        ws.send_json({"op": "set_note", "q": 0, "r": 0, "note": "owlbear den"})
+        msg = ws.receive_json()
+        assert msg["op"] == "set_note"
+        assert msg["note"] == "owlbear den"
+        assert msg["note_author"] == "steph"
+
+
+def test_set_note_on_missing_hex_errors(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_note", "q": 9, "r": 9, "note": "ghost"})
+        assert ws.receive_json()["type"] == "error"

@@ -36,10 +36,78 @@ def test_add_layer_rejects_unknown_terrain(store: MapStore) -> None:
 def test_set_hex_and_snapshot(store: MapStore) -> None:
     store.set_hex(2, -1, "DESERT")
     snap = store.snapshot()
-    assert {"q": 2, "r": -1, "terrain": "DESERT", "icon": None} in snap["hexes"]
+    assert {
+        "q": 2,
+        "r": -1,
+        "terrain": "DESERT",
+        "icon": None,
+        "note": None,
+        "note_author": None,
+    } in snap["hexes"]
 
 
 def test_remove_hex(store: MapStore) -> None:
     store.set_hex(0, 0, "FOG")
     store.remove_hex(0, 0)
     assert store.count() == 0
+
+
+def test_set_note_and_snapshot(store: MapStore) -> None:
+    store.set_hex(1, 2, "FOREST")
+    store.set_note(1, 2, "Session 12: owlbear den", "steph")
+    snap = store.snapshot()
+    (cell,) = [h for h in snap["hexes"] if h["q"] == 1 and h["r"] == 2]
+    assert cell["note"] == "Session 12: owlbear den"
+    assert cell["note_author"] == "steph"
+
+
+def test_set_note_missing_hex_raises(store: MapStore) -> None:
+    with pytest.raises(ValueError, match="no hex"):
+        store.set_note(9, 9, "ghost note", "steph")
+
+
+def test_empty_note_clears(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_note(0, 0, "temp", "steph")
+    store.set_note(0, 0, "  ", "steph")
+    (cell,) = store.snapshot()["hexes"]
+    assert cell["note"] is None
+    assert cell["note_author"] is None
+
+
+def test_repaint_keeps_note(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_note(0, 0, "keep me", "steph")
+    store.set_hex(0, 0, "DESERT")
+    (cell,) = store.snapshot()["hexes"]
+    assert cell["terrain"] == "DESERT"
+    assert cell["note"] == "keep me"
+
+
+def test_note_roundtrips_through_hexmap(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_note(0, 0, "roundtrip", "steph")
+    data = store.export_hexmap()
+    other = MapStore(Path(":memory:"))
+    other.import_hexmap(data)
+    (cell,) = other.snapshot()["hexes"]
+    assert cell["note"] == "roundtrip"
+    assert cell["note_author"] == "steph"
+
+
+def test_migrates_old_db(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_file = tmp_path / "old.db"
+    con = sqlite3.connect(db_file)
+    con.execute(
+        "CREATE TABLE hexes (q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
+        "PRIMARY KEY (q, r))"
+    )
+    con.execute("INSERT INTO hexes VALUES (0, 0, 'FOG', NULL)")
+    con.commit()
+    con.close()
+    store = MapStore(db_file)
+    store.set_note(0, 0, "migrated", "steph")
+    (cell,) = store.snapshot()["hexes"]
+    assert cell["note"] == "migrated"

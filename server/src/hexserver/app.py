@@ -151,7 +151,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
             op = msg.get("op")
             async with lock:
                 try:
-                    out = apply_op(op, msg, role)
+                    out = apply_op(op, msg, role, hub.clients.get(ws, "anonymous"))
                 except Exception as e:
                     logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
@@ -171,7 +171,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
 DM_OPS = {"clear_all"}
 
 
-def apply_op(op: str | None, msg: dict[str, Any], role: str) -> dict[str, Any] | None:
+def apply_op(
+    op: str | None, msg: dict[str, Any], role: str, author: str
+) -> dict[str, Any] | None:
     if op in DM_OPS and role != "dm":
         raise PermissionError("Only the DM can do that")
     if op == "hello":
@@ -208,6 +210,18 @@ def apply_op(op: str | None, msg: dict[str, Any], role: str) -> dict[str, Any] |
             "version": store.version,
             "q": q,
             "r": r,
+        }
+    if op == "set_note":
+        q, r = int(msg["q"]), int(msg["r"])
+        note = str(msg.get("note") or "")[:2000]
+        result = store.set_note(q, r, note, author)
+        return {
+            "type": "op",
+            "op": "set_note",
+            "version": store.version,
+            "q": q,
+            "r": r,
+            **result,
         }
     if op == "add_layer":
         added = store.add_layer(str(msg["terrain"]))

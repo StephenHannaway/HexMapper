@@ -13,8 +13,14 @@ class MapStore:
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS hexes ("
-            "q INTEGER, r INTEGER, terrain TEXT, icon TEXT, PRIMARY KEY (q, r))"
+            "q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
+            "note TEXT, note_author TEXT, PRIMARY KEY (q, r))"
         )
+        cols = {row[1] for row in self.db.execute("PRAGMA table_info(hexes)")}
+        if "note" not in cols:
+            self.db.execute("ALTER TABLE hexes ADD COLUMN note TEXT")
+            self.db.execute("ALTER TABLE hexes ADD COLUMN note_author TEXT")
+            self.db.commit()
         self.version = 0
         if seed_file is not None and self.count() == 0 and seed_file.exists():
             self.import_hexmap(json.loads(seed_file.read_text()))
@@ -24,12 +30,21 @@ class MapStore:
         return int(row[0])
 
     def snapshot(self) -> dict[str, Any]:
-        rows = self.db.execute("SELECT q, r, terrain, icon FROM hexes").fetchall()
+        rows = self.db.execute(
+            "SELECT q, r, terrain, icon, note, note_author FROM hexes"
+        ).fetchall()
         return {
             "version": self.version,
             "hexes": [
-                {"q": q, "r": r, "terrain": terrain, "icon": icon}
-                for q, r, terrain, icon in rows
+                {
+                    "q": q,
+                    "r": r,
+                    "terrain": terrain,
+                    "icon": icon,
+                    "note": note,
+                    "note_author": note_author,
+                }
+                for q, r, terrain, icon, note, note_author in rows
             ],
         }
 
@@ -51,6 +66,18 @@ class MapStore:
         self.db.commit()
         if cur.rowcount:
             self.version += 1
+
+    def set_note(self, q: int, r: int, note: str, author: str) -> dict[str, Any]:
+        text = note.strip() or None
+        cur = self.db.execute(
+            "UPDATE hexes SET note = ?, note_author = ? WHERE q = ? AND r = ?",
+            (text, author if text else None, q, r),
+        )
+        self.db.commit()
+        if not cur.rowcount:
+            raise ValueError(f"no hex at {q},{r}")
+        self.version += 1
+        return {"note": text, "note_author": author if text else None}
 
     def remove_hex(self, q: int, r: int) -> None:
         self.db.execute("DELETE FROM hexes WHERE q = ? AND r = ?", (q, r))
@@ -89,9 +116,17 @@ class MapStore:
     def import_hexmap(self, data: dict[str, Any]) -> None:
         self.db.execute("DELETE FROM hexes")
         self.db.executemany(
-            "INSERT OR REPLACE INTO hexes (q, r, terrain, icon) VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO hexes (q, r, terrain, icon, note, note_author) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             [
-                (h["q"], h["r"], h["terrain"], h.get("icon_name"))
+                (
+                    h["q"],
+                    h["r"],
+                    h["terrain"],
+                    h.get("icon_name"),
+                    h.get("note"),
+                    h.get("note_author"),
+                )
                 for h in data.get("hexes", [])
                 if h["terrain"] in TERRAINS
             ],
@@ -100,10 +135,20 @@ class MapStore:
         self.version += 1
 
     def export_hexmap(self) -> dict[str, Any]:
-        rows = self.db.execute("SELECT q, r, terrain, icon FROM hexes").fetchall()
+        rows = self.db.execute(
+            "SELECT q, r, terrain, icon, note, note_author FROM hexes"
+        ).fetchall()
+        # note fields are extra keys the desktop app's from_json_dict ignores
         return {
             "hexes": [
-                {"q": q, "r": r, "terrain": terrain, "icon_name": icon}
-                for q, r, terrain, icon in rows
+                {
+                    "q": q,
+                    "r": r,
+                    "terrain": terrain,
+                    "icon_name": icon,
+                    "note": note,
+                    "note_author": note_author,
+                }
+                for q, r, terrain, icon, note, note_author in rows
             ]
         }
