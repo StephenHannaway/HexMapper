@@ -240,6 +240,25 @@ document.getElementById("iconBtn").onclick = () => setTool("icon");
 document.getElementById("removeBtn").onclick = () => setTool("remove");
 document.getElementById("layerBtn").onclick = () =>
   send({ op: "add_layer", terrain: state.terrain });
+let clearArmed = false;
+const clearBtn = document.getElementById("clearBtn");
+clearBtn.onclick = () => {
+  if (!clearArmed) {
+    clearArmed = true;
+    clearBtn.textContent = "Really clear? (click again)";
+    clearBtn.classList.add("active");
+    setTimeout(() => {
+      clearArmed = false;
+      clearBtn.textContent = "Clear all";
+      clearBtn.classList.remove("active");
+    }, 3000);
+    return;
+  }
+  clearArmed = false;
+  clearBtn.textContent = "Clear all";
+  clearBtn.classList.remove("active");
+  send({ op: "clear_all" });
+};
 document.getElementById("exportBtn").onclick = () => {
   const a = document.createElement("a");
   a.href = "/api/map/export";
