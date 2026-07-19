@@ -1,12 +1,15 @@
 import asyncio
 import json
 import logging
+import os
+import secrets
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from hexserver.config import ICONS, TERRAINS
 from hexserver.store import MapStore
@@ -14,14 +17,50 @@ from hexserver.store import MapStore
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-WEB_DIR = REPO_ROOT / "web"
-ASSETS_DIR = REPO_ROOT / "src" / "hexmapper" / "assets"
-DB_PATH = REPO_ROOT / "server" / "map.db"
-SEED_FILE = REPO_ROOT / "map.hexmap2"
+WEB_DIR = Path(os.environ.get("HEXMAP_WEB_DIR", REPO_ROOT / "web"))
+ASSETS_DIR = Path(
+    os.environ.get("HEXMAP_ASSETS_DIR", REPO_ROOT / "src" / "hexmapper" / "assets")
+)
+DB_PATH = Path(os.environ.get("HEXMAP_DB", REPO_ROOT / "server" / "map.db"))
+SEED_FILE = Path(os.environ.get("HEXMAP_SEED", REPO_ROOT / "map.hexmap2"))
+MAP_KEY = os.environ.get("HEXMAP_KEY", "")
 
 app = FastAPI(title="hexserver")
 store = MapStore(DB_PATH, seed_file=SEED_FILE)
 lock = asyncio.Lock()
+
+
+def _key_ok(cookie: str | None, query_key: str | None) -> bool:
+    if not MAP_KEY:
+        return True
+    for candidate in (cookie, query_key):
+        if candidate and secrets.compare_digest(candidate, MAP_KEY):
+            return True
+    return False
+
+
+class KeyGateMiddleware(BaseHTTPMiddleware):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        cookie = request.cookies.get("mapkey")
+        query_key = request.query_params.get("key")
+        if not _key_ok(cookie, query_key):
+            return HTMLResponse(
+                "<h1>This map is private</h1><p>Ask your DM for the invite link.</p>",
+                status_code=403,
+            )
+        if query_key and not cookie:
+            response: Response = RedirectResponse(request.url.path)
+            response.set_cookie(
+                "mapkey", query_key, max_age=365 * 24 * 3600, httponly=True
+            )
+            return response
+        return await call_next(request)
+
+
+if MAP_KEY:
+    app.add_middleware(KeyGateMiddleware)
 
 
 class Hub:
@@ -69,6 +108,9 @@ async def export_map() -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
+    if not _key_ok(ws.cookies.get("mapkey"), ws.query_params.get("key")):
+        await ws.close(code=4403)
+        return
     await ws.accept()
     hub.clients[ws] = "anonymous"
     try:
