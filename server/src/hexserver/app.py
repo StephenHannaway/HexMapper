@@ -114,6 +114,27 @@ async def export_map() -> JSONResponse:
         return JSONResponse(store.export_hexmap())
 
 
+@app.post("/api/map/import")
+async def import_map(request: Request) -> JSONResponse:
+    role = role_for(request.cookies.get("mapkey"), request.query_params.get("key"))
+    if role != "dm":
+        return JSONResponse({"detail": "Only the DM can import a map"}, status_code=403)
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"detail": "not valid JSON"}, status_code=400)
+    hexes = data.get("hexes") if isinstance(data, dict) else None
+    if not isinstance(hexes, list) or not hexes:
+        return JSONResponse(
+            {"detail": "not a .hexmap file (no hexes)"}, status_code=400
+        )
+    async with lock:
+        store.import_hexmap(data)
+        snap = store.snapshot()
+    await hub.broadcast({"type": "snapshot", **snap})
+    return JSONResponse({"ok": True, "hexes": len(snap["hexes"])})
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     role = role_for(ws.cookies.get("mapkey"), ws.query_params.get("key"))

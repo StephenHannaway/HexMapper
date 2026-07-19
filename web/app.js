@@ -354,6 +354,27 @@ document.getElementById("exportBtn").onclick = () => {
   a.download = "world.hexmap";
   a.click();
 };
+const importInput = document.getElementById("importInput");
+document.getElementById("importBtn").onclick = () => importInput.click();
+importInput.onchange = async () => {
+  const file = importInput.files[0];
+  importInput.value = "";
+  if (!file) return;
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    toast("Not a valid .hexmap file");
+    return;
+  }
+  const res = await fetch("/api/map/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const out = await res.json().catch(() => ({}));
+  toast(res.ok ? `Imported ${out.hexes} hexes` : out.detail || "Import failed");
+};
 document.getElementById("iconSelect").onchange = (e) => {
   state.icon = e.target.value || null;
   if (state.icon) setTool("icon");

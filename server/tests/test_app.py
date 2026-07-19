@@ -100,3 +100,46 @@ def test_player_can_set_hex(client: TestClient) -> None:
         msg = ws.receive_json()
         assert msg["op"] == "set_hex"
     assert app_module.store.count() == 1
+
+
+HEXMAP = {
+    "hexes": [
+        {"q": 0, "r": 0, "terrain": "OCEAN", "icon_name": None},
+        {"q": 1, "r": 0, "terrain": "FOREST", "icon_name": "castle"},
+    ]
+}
+
+
+def test_import_requires_dm(client: TestClient) -> None:
+    r = client.post("/api/map/import", json=HEXMAP, headers=PLAYER)
+    assert r.status_code == 403
+
+
+def test_import_replaces_map(client: TestClient) -> None:
+    app_module.store.set_hex(5, 5, "FOG")
+    r = client.post("/api/map/import", json=HEXMAP, headers=DM)
+    assert r.status_code == 200
+    assert r.json()["hexes"] == 2
+    snap = app_module.store.snapshot()
+    coords = {(h["q"], h["r"]) for h in snap["hexes"]}
+    assert coords == {(0, 0), (1, 0)}
+
+
+def test_import_rejects_malformed(client: TestClient) -> None:
+    r = client.post("/api/map/import", json={"nope": 1}, headers=DM)
+    assert r.status_code == 400
+
+
+def test_import_rejects_empty(client: TestClient) -> None:
+    r = client.post("/api/map/import", json={"hexes": []}, headers=DM)
+    assert r.status_code == 400
+
+
+def test_import_broadcasts_snapshot(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        r = client.post("/api/map/import", json=HEXMAP, headers=DM)
+        assert r.status_code == 200
+        msg = ws.receive_json()
+        assert msg["type"] == "snapshot"
+        assert len(msg["hexes"]) == 2
