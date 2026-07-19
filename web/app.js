@@ -103,9 +103,11 @@ function connect() {
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
+      const firstLoad = !state.hexes.size;
       state.hexes.clear();
       msg.hexes.forEach(applyHex);
       state.version = msg.version;
+      if (firstLoad) fitView();
     } else if (msg.type === "op") {
       if (msg.op === "set_hex") {
         const existing = state.hexes.get(key(msg.q, msg.r));
@@ -172,12 +174,18 @@ function editAt(clientX, clientY) {
 // --- input ---
 
 let dragging = false, painting = false, lastX = 0, lastY = 0, moved = 0;
+let spaceHeld = false;
+const heldKeys = new Set();
 
 canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   lastX = e.clientX; lastY = e.clientY; moved = 0;
-  if (e.button === 1 || e.button === 2 || e.shiftKey) dragging = true;
-  else if (e.button === 0) painting = true;
+  const panning =
+    state.tool === "pan" || spaceHeld || e.button === 1 || e.button === 2 || e.shiftKey;
+  if (panning) {
+    dragging = true;
+    canvas.style.cursor = "grabbing";
+  } else if (e.button === 0) painting = true;
 });
 
 canvas.addEventListener("pointermove", (e) => {
@@ -196,7 +204,84 @@ canvas.addEventListener("pointermove", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   if (painting && (state.tool !== "paint" || moved < 6)) editAt(e.clientX, e.clientY);
   dragging = painting = false;
+  canvas.style.cursor = state.tool === "pan" ? "grab" : "crosshair";
 });
+
+function isTyping() {
+  const el = document.activeElement;
+  return el && (el.tagName === "INPUT" || el.tagName === "SELECT");
+}
+
+const PAN_KEYS = {
+  ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1],
+  a: [1, 0], d: [-1, 0], w: [0, 1], s: [0, -1],
+};
+
+function panLoop() {
+  if (!heldKeys.size) return;
+  let dx = 0, dy = 0;
+  for (const k of heldKeys) {
+    const v = PAN_KEYS[k];
+    if (v) { dx += v[0]; dy += v[1]; }
+  }
+  state.offsetX += dx * 14;
+  state.offsetY += dy * 14;
+  draw();
+  requestAnimationFrame(panLoop);
+}
+
+function zoomAtCenter(factor) {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const newScale = Math.min(6, Math.max(0.2, state.scale * factor));
+  state.offsetX = cx - (cx - state.offsetX) * (newScale / state.scale);
+  state.offsetY = cy - (cy - state.offsetY) * (newScale / state.scale);
+  state.scale = newScale;
+  draw();
+}
+
+window.addEventListener("keydown", (e) => {
+  if (isTyping()) return;
+  if (e.key === " ") {
+    spaceHeld = true;
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "+" || e.key === "=") { zoomAtCenter(1.15); return; }
+  if (e.key === "-" || e.key === "_") { zoomAtCenter(1 / 1.15); return; }
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (PAN_KEYS[k]) {
+    e.preventDefault();
+    if (!heldKeys.size) requestAnimationFrame(panLoop);
+    heldKeys.add(k);
+  }
+});
+
+window.addEventListener("keyup", (e) => {
+  if (e.key === " ") spaceHeld = false;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  heldKeys.delete(k);
+});
+
+window.addEventListener("blur", () => {
+  spaceHeld = false;
+  heldKeys.clear();
+});
+
+function fitView() {
+  if (!state.hexes.size) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const cell of state.hexes.values()) {
+    const [x, y] = hexToPixel(cell.q, cell.r);
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const pad = HEX_SIZE * 3;
+  const w = maxX - minX + pad * 2, h = maxY - minY + pad * 2;
+  state.scale = Math.min(6, Math.max(0.2, Math.min(canvas.width / w, canvas.height / h)));
+  state.offsetX = canvas.width / 2 - ((minX + maxX) / 2) * state.scale;
+  state.offsetY = canvas.height / 2 - ((minY + maxY) / 2) * state.scale;
+  draw();
+}
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -217,9 +302,10 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["paintBtn", "paint"], ["iconBtn", "icon"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
+  canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
 }
 
 function setStatus(text) {
@@ -235,6 +321,8 @@ function toast(text) {
   toastTimer = setTimeout(() => (el.style.opacity = 0), 2500);
 }
 
+document.getElementById("panBtn").onclick = () => setTool("pan");
+document.getElementById("centerBtn").onclick = fitView;
 document.getElementById("paintBtn").onclick = () => setTool("paint");
 document.getElementById("iconBtn").onclick = () => setTool("icon");
 document.getElementById("removeBtn").onclick = () => setTool("remove");
