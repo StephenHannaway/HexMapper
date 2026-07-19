@@ -36,7 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --dev
+      # sync the whole workspace: dev tools live in the root dev group
+      - run: uv sync --all-packages --dev
+        working-directory: ${{ github.workspace }}
       - run: uv run ruff format --check src tests
       - run: uv run ruff check src tests
       - run: uv run mypy --strict src/hexserver
@@ -49,5 +51,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --dev
+      - run: uv sync --all-packages --dev
+        working-directory: ${{ github.workspace }}
       - run: uv run pytest tests
