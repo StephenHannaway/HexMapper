@@ -3,6 +3,12 @@
 Handoff for a fresh Claude Code session working in `C:\Users\Steph\Projects\Code\Hex Editor`.
 Read this whole file before starting. Pick items by priority unless Stephen says otherwise.
 
+**Status 2026-07-20:** 19 of 27 items are done (the original 25 plus roads & rivers)
+on branch `feat/enhancements-batch-1`, draft PR #1 — not yet merged or deployed. The
+done work is summarised under "What's been built" and each finished item below is ✓.
+Remaining: 4 (undo), 5 (rate limiting), 10 (travel measure), 12 (multiple maps),
+16 (last-edited-by hover), 21 (minimap), 23 (theme/grid options).
+
 ## What this project is
 
 A collaborative online hex map for a D&D West Marches group. Deployed and in use.
@@ -12,30 +18,72 @@ A collaborative online hex map for a D&D West Marches group. Deployed and in use
   Fly app `hexmapper-west-marches`, region `lhr`, one 256MB machine, auto-stop,
   1 GB volume mounted at `/data` holding `map.db` (SQLite). **Deploys never touch the volume.**
 - **Server**: FastAPI + WebSocket, `server/src/hexserver/`
-  - `app.py` — static serving, REST (`/api/config`, `/api/map`, `/api/map/export`),
-    WS hub (`/ws`), invite-key gate middleware
-  - `store.py` — all map state + SQLite; ops: `set_hex`, `set_icon`, `remove_hex`,
-    `add_layer`, `clear_all`, import/export of the desktop `.hexmap` JSON format
+  - `app.py` — static serving, REST (`/api/config`, `/api/map`, `/api/map/export`,
+    `/api/map/import` [POST, DM-only], `/api/history`), WS hub (`/ws`),
+    invite-key gate middleware, dm/player roles, per-op audit logging
+  - `store.py` — all map state + SQLite; ops: `set_hex`, `set_icon`, `set_note`,
+    `set_party`, `set_explored`, `set_fog`, `remove_hex`, `add_layer`, `clear_all`,
+    `log_op`/`history`, import/export of the desktop `.hexmap` JSON format
   - `config.py` — 19 terrains (name→hex colour), 15 icons (name→PNG in `src/hexmapper/assets/`)
-  - `tests/` — pytest for store logic
+  - `tests/` — 47 pytest tests: store logic + full app-level WS/REST coverage
+    (TestClient; key gate, roles, broadcasts, import, history, fog, cursors)
 - **Client**: `web/index.html` + `web/app.js`. No framework, no build step. Canvas
-  renderer (axial hex coords, flat-top), pan/zoom/keyboard nav, tools (pan, paint,
-  icon, remove, add-layer, centre/fit, export, clear-all with two-click confirm),
-  optimistic edits + server-authoritative broadcast with version numbers, presence
-  list, auto-reconnect with snapshot resync.
+  renderer (axial hex coords, flat-top), pan/zoom/keyboard nav + pinch zoom, tools
+  (pan, paint, icon, notes, move-party, reveal/hide [DM], remove, add-layer,
+  centre/fit, export, import [DM], clear-all [DM]), optimistic edits +
+  server-authoritative broadcast with version numbers, presence list with colours,
+  live cursors, recent-changes feed, hex ping, fog rendering, auto-reconnect with
+  snapshot resync + version-gap resync.
 - **Sync model**: per-hex last-write-wins; server validates ops, bumps a version,
-  broadcasts to all; snapshot on connect/reconnect. Good enough at party scale.
+  broadcasts to all; snapshot on connect/reconnect; client refetches `/api/map` if
+  a broadcast version skips ahead. Good enough at party scale.
 - **Desktop original**: `src/hexmapper/` (pygame) — unchanged, shares assets and
-  `.hexmap` format. Don't break it.
+  `.hexmap` format (its `from_json_dict` ignores unknown keys, so the web format's
+  extra fields — `note`, `note_author` — are safe). Don't break it.
 - Design spec: `docs/superpowers/specs/2026-07-19-online-collab-hexmap-design.md`.
-  Architecture guide: `docs/how-it-works.html`.
+  Architecture guide: `docs/how-it-works.html` (predates roles/notes/fog — update it
+  when convenient). Roads & rivers plan: `docs/superpowers/plans/2026-07-20-roads-and-rivers.md`.
+
+## What's been built (branch `feat/enhancements-batch-1`, PR #1)
+
+- **Roles**: second secret `HEXMAP_DM_KEY` → role dm/player from which key the
+  `mapkey` cookie matches. `clear_all`, `set_explored`, `set_fog` and map import are
+  DM-only (`DM_OPS` in app.py); DM-only buttons carry class `dm-only` and hide for
+  players. With no DM key set everyone is a DM (pre-role behaviour). Visiting an
+  invite link now *replaces* a stale cookie, so a player can upgrade via the DM link.
+  **Prod prerequisite:** `flyctl secrets set HEXMAP_DM_KEY=<new secret>`.
+- **Schema migrations** (run automatically in `MapStore.__init__`, additive ALTERs):
+  `note`, `note_author`, `explored INTEGER DEFAULT 1` columns on `hexes`; new tables
+  `ops` (audit, capped at 1000 rows) and `meta` (key/value: `party`, `fog`).
+- **Notes**: `set_note` op stamped with the sender's hello name; floating panel,
+  yellow dot indicator, "last edited by". Round-trips through `.hexmap`.
+- **History**: every mutating op logged `(ts, player, op, detail)`; `GET /api/history`;
+  broadcasts carry `by`; sidebar feed coalesces consecutive paints. Groundwork for
+  undo (item 4) and per-hex attribution (item 16).
+- **Fog-of-war**: `set_fog` toggle + `set_explored` per hex (Reveal/hide tool).
+  Players render unexplored hexes as blank fog (icons/notes suppressed, note reads
+  blocked); DM sees them dimmed. Painting always marks a hex explored. Off by default.
+- **Party marker**: `set_party` (anyone), gold ring, stored in `meta`.
+- **Ping**: double-click → ephemeral `ping` broadcast (no version/log), 3 pulses.
+- **Live cursors**: throttled `cursor` op, handled *before* the lock, broadcast
+  excludes sender (`hub.broadcast(..., exclude=ws)`), keyed by connection `cid`;
+  coloured outline + name tag, 6s expiry.
+- **Presence polish**: name→hue colours, duplicate names collapse to ×N, join/leave
+  toasts, online count in the tab title.
+- **UX**: icon thumbnail grid; pinch-zoom/two-finger pan (`pointers` map in app.js;
+  needs a real phone test); hotkeys P/B/I/N/M/R + C fit + `?` help overlay + Esc.
+- **CI**: `server-check` / `server-test` jobs. **Must** `uv sync --all-packages --dev`
+  at the repo root (a member-dir `uv sync --dev` misses the root dev group — this
+  broke CI once already).
+- **Resync**: client refetches the snapshot when `msg.version > state.version + 1`.
 
 ## Workflow (non-negotiable, from CLAUDE.md)
 
 - `uv` for Python, `ruff` + `mypy --strict` + `pytest` must pass; pre-commit hooks run.
 - Conventional commits. Feature branches for larger work; squash-merge PRs.
 - Run locally: `cd server && uv run uvicorn hexserver.app:app --app-dir src --port 8321`
-  (no key gate locally; throwaway local DB `server/map.db`, gitignored).
+  (no key gate locally; throwaway local DB `server/map.db`, gitignored). To exercise
+  roles locally: `HEXMAP_KEY=x HEXMAP_DM_KEY=y uv run uvicorn ...`.
 - Tests/checks from `server/`: `uv run pytest tests`, `uv run ruff check src tests`,
   `uv run mypy --strict src/hexserver`.
 - Deploy (Docker Desktop must be running): `~/.fly/bin/flyctl deploy --local-only --ha=false`.
@@ -43,90 +91,92 @@ A collaborative online hex map for a D&D West Marches group. Deployed and in use
   unless Stephen already asked for the change to go live.
 - **Never** commit or print the invite key into shared docs/artifacts.
 
-## The 25 enhancements
+## The backlog
 
 Priorities: **P1** = highest value / do first · P2 = next · P3 = nice-to-have.
-Sizes: S (<1h), M (half day), L (day+). Each item lists the main files it touches.
+Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1`.
 
 ### Roles & safety
 
-1. **P1 · M — DM role via second key.** Add `HEXMAP_DM_KEY` secret; gate destructive
-   ops (`clear_all`, future import) server-side by role derived from which key the
-   cookie matches. Hide/disable DM-only buttons for players. (`app.py`, `web/app.js`, `index.html`)
-2. **P1 · M — Map import/restore endpoint.** `POST /api/map/import` accepting a
-   `.hexmap` JSON upload, DM-only; UI button next to Export. Closes the
-   backup-restore loop (export already exists; `store.import_hexmap` already exists). (`app.py`, `web/`)
-3. **P2 · M — Edit history / audit log.** Append `(ts, player, op)` to an `ops` table;
-   "recent changes" panel in the sidebar; groundwork for undo. (`store.py`, `app.py`, `web/`)
+1. ✓ **DM role via second key.**
+2. ✓ **Map import/restore endpoint.**
+3. ✓ **Edit history / audit log.**
 4. **P2 · L — Undo.** Global undo of the last N ops from the ops log (DM-only), or
-   per-hex "revert to previous". Requires item 3. (`store.py`, `app.py`, `web/`)
+   per-hex "revert to previous". The ops log (item 3) exists; `detail` currently
+   records the *new* state only — undo needs prior-state capture added to `log_op`
+   call sites, or a rework to log before/after. (`store.py`, `app.py`, `web/`)
 5. **P3 · S — Rate limiting.** Cap ops/second per connection to stop a stuck client
-   or griefer from flooding. (`app.py`)
+   or griefer from flooding. Live cursors make this slightly more pressing. (`app.py`)
 
 ### West Marches gameplay
 
-6. **P1 · L — Hex notes.** Click a hex in a "notes" tool to read/write freeform text
-   ("Session 12: owlbear den"). New `notes` column; note indicator dot on hexes;
-   panel shows note + last editor. The single highest-value feature for the group. (`store.py`, `app.py`, `web/`)
-7. **P2 · M — Named place labels.** Text labels rendered on/under hexes at readable
-   zoom levels (e.g. "Akaford"). Store as per-hex `label`; declutter by hiding when
-   zoomed far out. (`store.py`, `app.py`, `web/app.js`)
-8. **P2 · S — Party position marker.** One special movable token everyone sees;
-   "move party here" via context/tool. Broadcast like any op; store in a `meta` table. (`store.py`, `app.py`, `web/`)
-9. **P2 · M — Fog-of-war mode.** Player view renders unexplored hexes as blank/fog
-   regardless of terrain; DM sees all; DM "reveal" tool flips an `explored` flag.
-   Depends on item 1 for roles. (`store.py`, `app.py`, `web/app.js`)
+6. ✓ **Hex notes.**
+7. ✓ **Named place labels.** Per-hex `label` column (auto-migrated), `set_label` op,
+   set via a "Place name" field in the notes panel; drawn as outlined text under the
+   hex centre, hidden below ~11px hex size and on fogged player hexes. Rides `.hexmap`.
+8. ✓ **Party position marker.**
+9. ✓ **Fog-of-war mode.**
 10. **P3 · M — Travel measure tool.** Click two hexes → hex distance + path
-    highlight + configurable "days at N hexes/day". Pure client feature (axial
-    distance is trivial). (`web/app.js`)
-11. **P3 · M — Rivers & roads.** Edge features drawn along hex borders (river between
-    two hexes, road through). New data shape: per-edge records. Design carefully to
-    stay compatible with `.hexmap`. (`store.py`, `app.py`, `web/app.js`)
+    highlight + configurable "days at N hexes/day". Pure client feature. Once
+    items 26/27 land, roads should reduce travel cost. (`web/app.js`)
+11. *(superseded — see items 26/27, planned in
+    `docs/superpowers/plans/2026-07-20-roads-and-rivers.md`)*
 12. **P3 · L — Multiple maps.** Region maps / dungeon maps with a switcher; maps
     table + map_id on hexes + per-map WS rooms. The design spec already sketches this. (`server/`, `web/`)
 
 ### Collaboration feel
 
-13. **P2 · S — Live cursors.** Broadcast hovered hex per player (throttled);
-    render soft highlights + name tags in other tabs. Ephemeral — no persistence. (`app.py`, `web/app.js`)
-14. **P2 · S — Hex ping.** Double-click flashes a hex for everyone (find the party,
-    "look here"). Ephemeral broadcast op. (`app.py`, `web/app.js`)
-15. **P2 · S — Presence polish.** Stable per-player colours, dedupe repeated names,
-    join/leave toasts, count in the tab title. (`app.py`, `web/`)
-16. **P3 · S — "Last edited by" on hover.** Tooltip showing who last touched a hex
-    (needs item 3's log or a per-hex `edited_by` column). (`store.py`, `web/app.js`)
+13. ✓ **Live cursors.**
+14. ✓ **Hex ping.**
+15. ✓ **Presence polish.**
+16. **P3 · S — "Last edited by" on hover.** Tooltip showing who last touched a hex.
+    Cheapest route now: per-hex `edited_by` column updated in `set_hex`/`set_icon`,
+    surfaced in snapshot; the ops log alone can't answer historical hexes cheaply.
+    (`store.py`, `web/app.js`)
 
 ### UX & rendering
 
-17. **P1 · M — Touch support.** Single-finger pan (in pan tool), two-finger
-    pinch-zoom, larger touch targets; test on a phone — players will open this at
-    the table. Pointer events are already in place, so this is incremental. (`web/app.js`, `index.html`)
-18. **P1 · S — Visual icon picker.** Replace the `<select>` with a thumbnail grid
-    (icons are already served as PNGs). Big usability win, tiny effort. (`web/index.html`, `web/app.js`)
-19. **P2 · S — Keyboard shortcuts for tools.** P/B/I/R/E-style keys + a "?" overlay
-    listing all controls; extend the existing hint line. (`web/app.js`, `index.html`)
-20. **P2 · M — PNG export.** Render the full map to an offscreen canvas and download
-    as PNG for Discord sharing. (`web/app.js`)
+17. ✓ **Touch support.** (Implemented; still wants a real-phone sanity check.)
+18. ✓ **Visual icon picker.**
+19. ✓ **Keyboard shortcuts + help overlay.**
+20. ✓ **PNG export.** "Export PNG" renders the whole map to an offscreen canvas sized
+    to the hex bounds and downloads `world-map.png`. `draw()` targets a swappable
+    `ctx`; ephemeral overlays skipped via an `exporting` flag; player exports respect
+    fog (fogged hexes render blank as on screen). (`web/app.js`)
 21. **P2 · M — Minimap.** Small overview in a corner with a viewport rectangle;
     click to jump. Render cheaply from hex data at low res. (`web/app.js`)
-22. **P3 · S — Hex coordinate readout + jump.** Show `q,r` under the cursor; a "go to
-    coordinate" box. Helps players reference locations in session notes. (`web/app.js`)
+22. ✓ **Hex coordinate readout + jump.** Sidebar shows `q,r` under the cursor; a
+    "go to q,r" box recentres the view on a typed hex. (`web/app.js`)
 23. **P3 · M — Theme & grid options.** Light map background option, grid line
     toggle/strength, saved per player in localStorage. (`web/index.html`, `web/app.js`)
 
 ### Engineering & ops
 
-24. **P1 · S — CI for the server + web.** Extend `.github/workflows/ci.yml` to run
-    server pytest/ruff/mypy (the existing CI only covers the desktop app). Optional:
-    deploy-on-main with a `FLY_API_TOKEN` repo secret — ask Stephen first. (`.github/`, maybe `justfile`)
-25. **P2 · M — Client resync hardening + tests.** Detect version gaps in broadcasts
-    and refetch the snapshot; add server WS tests with FastAPI's TestClient
-    (connect, op, broadcast, reject-invalid, key gate). (`web/app.js`, `server/tests/`)
+24. ✓ **CI for the server + web.** (Deploy-on-main still optional — ask Stephen first.)
+25. ✓ **Client resync hardening + tests.**
 
-## Suggested first batch
+### New: dynamic roads & rivers
 
-`1 → 2 → 18 → 17 → 24 → 6` — after that, ask Stephen what the group is feeling the
-lack of. Items 3, 9, 12 are the big structural ones; do them on feature branches.
+Full implementation plan with code: `docs/superpowers/plans/2026-07-20-roads-and-rivers.md`.
+Shared infrastructure (features table, A* pathfinding, feature rendering) built once,
+then two thin tool variants.
+
+26. ✓ **Dynamic road building.** Road tool (O): click waypoints, dashed live A*
+    preview, Enter/double-click builds, Esc cancels, Shift-click removes. Server
+    routes authoritatively (`pathfind.py`, cost tables in `config.py`, served to the
+    client via `/api/config.feature_costs`); `features` table; awareness via
+    `store.features_at(q, r)` / client `featureIdsAt(q, r)`.
+27. ✓ **Dynamic river building.** Same skeleton, river cost profile, wide blue
+    rendering beneath roads; both fog-aware (players see lines break at unexplored
+    hexes) and both round-trip through `.hexmap`.
+
+## Suggested next batch
+
+Likely next picks: 21 (minimap) and 10 (travel measure — roads exist now to discount
+travel cost) are the highest-value remaining; 16 (last-edited-by hover) is nearly free
+given the audit log; 4 (undo) when a quiet day allows; 5 (rate limiting) is a quick
+safety win now that live cursors add traffic. Ask Stephen before the big structural
+one (12, multiple maps).
 
 ## Gotchas learned the hard way
 
@@ -139,4 +189,14 @@ lack of. Items 3, 9, 12 are the big structural ones; do them on feature branches
 - Iterating a set while mutating it broke `add_layer` once (RuntimeError kills the
   WS silently). The WS handler now logs + survives unexpected op errors — preserve that.
 - `uv` made this repo a workspace (`server` is a member); run server commands from
-  `server/` with the shared root venv.
+  `server/` with the shared root venv. **In CI, sync with
+  `uv sync --all-packages --dev` from the repo root** — `uv sync --dev` inside
+  `server/` installs only the member's deps and the dev tools vanish.
+- Chrome caches `/app.js` hard during local dev — hard-reload (Ctrl+Shift+R) after
+  edits or you will debug a stale module (this cost 30 minutes once).
+- An edit sent before the first WS snapshot used to suppress fit-to-view; guarded by
+  `state.hadSnapshot` now — don't regress it.
+- Every tool button needs BOTH: an entry in `setTool`'s id list AND an
+  `onclick = () => setTool(...)` binding (forgetting the second shipped once).
+- `gh` CLI and `jq` are not installed; use the GitHub API via
+  `git credential fill` + `uv run python` (never print the token).

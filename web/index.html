@@ -28,13 +28,46 @@
   #terrainGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   #terrainGrid button { padding: 0; height: 26px; border-radius: 4px; }
   #terrainGrid button.selected { outline: 2px solid #fff; }
+  #iconGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  #iconGrid button { padding: 4px; height: 44px; border-radius: 4px; }
+  #iconGrid button img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #iconGrid button.selected { outline: 2px solid #fff; }
   #presence { font-size: 12px; color: #b8b8c4; line-height: 1.6; }
+  #history { font-size: 11px; color: #9a9aa6; line-height: 1.6; }
+  #history b { color: #d0d0d8; font-weight: 600; }
   #presence .dot { color: #6dd36d; margin-right: 5px; }
   #hint { font-size: 11px; color: #6f6f7a; line-height: 1.5; margin-top: auto; }
   #status { font-size: 11px; color: #8a8a96; }
+  #coords { font-size: 11px; color: #6f6f7a; }
+  #gotoInput { padding: 5px 8px; font-size: 12px; cursor: text; }
   #toast { position: fixed; left: 12px; bottom: 12px; background: #34343ccc;
     padding: 6px 12px; border-radius: 6px; font-size: 12px; opacity: 0;
     transition: opacity .3s; pointer-events: none; }
+  #notePanel { position: fixed; left: 12px; top: 12px; width: 270px;
+    background: #28282dee; border: 1px solid #3a3a42; border-radius: 8px;
+    padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  #notePanel[hidden] { display: none; }
+  #noteTitle { font-size: 12px; font-weight: 600; color: #e8e8ec; }
+  #noteText { width: 100%; padding: 8px 10px; border-radius: 6px;
+    border: 1px solid #45454f; background: #34343c; color: #e8e8ec;
+    font-size: 13px; font-family: inherit; resize: vertical; cursor: text; }
+  #noteMeta { font-size: 11px; color: #9a9aa6; }
+  #noteBtns { display: flex; gap: 6px; }
+  #helpOverlay { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: #28282df2; border: 1px solid #3a3a42; border-radius: 10px;
+    padding: 18px 22px; display: flex; flex-direction: column; gap: 9px;
+    font-size: 13px; color: #c8c8d2; z-index: 10; }
+  #helpOverlay[hidden] { display: none; }
+  #helpOverlay h3 { font-size: 14px; color: #e8e8ec; margin-bottom: 4px; }
+  .helpRow { display: flex; align-items: center; gap: 5px; }
+  .helpRow span { margin-left: 8px; color: #9a9aa6; }
+  kbd { background: #34343c; border: 1px solid #45454f; border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
+  @media (pointer: coarse) {
+    select, button, input { padding: 12px 10px; font-size: 15px; }
+    #terrainGrid button { height: 36px; padding: 0; }
+    #iconGrid button { height: 56px; padding: 5px; }
+  }
 </style>
 </head>
 <body>
@@ -44,24 +77,61 @@
     <h2>Terrain</h2>
     <div id="terrainGrid"></div>
     <h2>Icon</h2>
-    <select id="iconSelect"><option value="">— none —</option></select>
+    <div id="iconGrid"></div>
     <h2>Tools</h2>
     <button id="panBtn">Pan / move</button>
     <button id="paintBtn" class="active">Paint terrain</button>
     <button id="iconBtn">Place icon</button>
+    <button id="noteBtn">Notes</button>
+    <button id="partyBtn">Move party</button>
+    <button id="roadBtn">Road</button>
+    <button id="riverBtn">River</button>
+    <button id="revealBtn" class="dm-only">Reveal / hide</button>
+    <button id="fogBtn" class="dm-only">Fog of war: off</button>
     <button id="removeBtn">Remove hex</button>
     <button id="layerBtn">Add layer (ring)</button>
     <button id="centerBtn">Centre map</button>
     <button id="exportBtn">Export .hexmap</button>
-    <button id="clearBtn">Clear all</button>
+    <button id="exportPngBtn">Export PNG</button>
+    <button id="importBtn" class="dm-only">Import .hexmap</button>
+    <input id="importInput" type="file" accept=".hexmap,.hexmap2,application/json" hidden>
+    <button id="clearBtn" class="dm-only">Clear all</button>
     <h2>Your name</h2>
     <input id="nameInput" type="text" maxlength="32">
     <h2>Party online</h2>
     <div id="presence">…</div>
-    <div id="hint">move: arrows / WASD / space-drag / right-drag<br>zoom: wheel or +/−</div>
+    <h2>Recent changes</h2>
+    <div id="history">…</div>
+    <div id="hint">move: arrows / WASD / space-drag / right-drag<br>zoom: wheel, pinch or +/−<br>press ? for all shortcuts</div>
+    <div id="coords">&nbsp;</div>
+    <input id="gotoInput" type="text" placeholder="go to q,r">
     <div id="status">connecting…</div>
   </div>
   <div id="toast"></div>
+  <div id="helpOverlay" hidden>
+    <h3>Controls</h3>
+    <div class="helpRow"><kbd>P</kbd><kbd>B</kbd><kbd>I</kbd><kbd>N</kbd><kbd>M</kbd><kbd>R</kbd><span>pan · paint · icon · notes · move party · remove</span></div>
+    <div class="helpRow"><kbd>C</kbd><span>centre / fit map</span></div>
+    <div class="helpRow"><kbd>←↑↓→</kbd><kbd>WASD</kbd><span>pan the map</span></div>
+    <div class="helpRow"><kbd>space</kbd>+drag, right-drag<span>pan with the mouse</span></div>
+    <div class="helpRow"><kbd>wheel</kbd><kbd>pinch</kbd><kbd>+</kbd><kbd>−</kbd><span>zoom</span></div>
+    <div class="helpRow">double-click<span>ping a hex for everyone</span></div>
+    <div class="helpRow"><kbd>O</kbd><kbd>V</kbd><span>road / river: click waypoints, Enter builds, Shift-click removes</span></div>
+    <div class="helpRow"><kbd>Esc</kbd><span>close panels / cancel a draft</span></div>
+    <div class="helpRow"><kbd>?</kbd><span>toggle this help</span></div>
+  </div>
+  <div id="notePanel" hidden>
+    <div id="noteTitle">Note</div>
+    <input id="noteLabel" type="text" maxlength="40"
+      placeholder="Place name (shown on the map)">
+    <textarea id="noteText" rows="5" maxlength="2000"
+      placeholder="Session notes for this hex…"></textarea>
+    <div id="noteMeta"></div>
+    <div id="noteBtns">
+      <button id="noteSave">Save</button>
+      <button id="noteClose">Close</button>
+    </div>
+  </div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

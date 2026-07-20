@@ -27,3 +27,30 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --dev
       - run: uv run pytest
+
+  server-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # sync the whole workspace: dev tools live in the root dev group
+      - run: uv sync --all-packages --dev
+        working-directory: ${{ github.workspace }}
+      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests
+      - run: uv run mypy --strict src/hexserver
+
+  server-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --all-packages --dev
+        working-directory: ${{ github.workspace }}
+      - run: uv run pytest tests
