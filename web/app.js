@@ -2,7 +2,8 @@ const HEX_SIZE = 20;
 const SQRT3 = Math.sqrt(3);
 
 const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d"); // swapped temporarily during PNG export
+let exporting = false;
 
 const state = {
   hexes: new Map(), // "q,r" -> {q, r, terrain, icon}
@@ -136,7 +137,7 @@ function drawFeaturePaths(kind) {
 }
 
 function draw() {
-  const w = canvas.width, h = canvas.height;
+  const w = ctx.canvas.width, h = ctx.canvas.height;
   ctx.fillStyle = "#1e1e1e";
   ctx.fillRect(0, 0, w, h);
   const size = HEX_SIZE * state.scale;
@@ -195,7 +196,7 @@ function draw() {
   }
   drawFeaturePaths("river");
   drawFeaturePaths("road");
-  if (state.draft && state.draft.waypoints.length) {
+  if (!exporting && state.draft && state.draft.waypoints.length) {
     const committed = state.draft.committed;
     const preview = state.draft.preview || [];
     const full = committed.concat(
@@ -207,6 +208,7 @@ function draw() {
   }
   const cutoff = Date.now() - 6000;
   for (const c of cursors.values()) {
+    if (exporting) break;
     if (c.ts < cutoff) continue;
     const [wx, wy] = hexToPixel(c.q, c.r);
     const sx = wx * state.scale + state.offsetX;
@@ -225,7 +227,7 @@ function draw() {
     ctx.fillText(c.name, sx, sy + size * 1.35);
   }
   const now = performance.now();
-  for (let i = pings.length - 1; i >= 0; i--) {
+  for (let i = exporting ? -1 : pings.length - 1; i >= 0; i--) {
     const t = (now - pings[i].start) / 1500;
     if (t > 1) {
       pings.splice(i, 1);
@@ -657,6 +659,7 @@ canvas.addEventListener("pointermove", (e) => {
     (e.clientY - rect.top) * devicePixelRatio
   );
   const [hq, hr] = pixelToHex(hwx, hwy);
+  coordsEl.textContent = `hex ${hq},${hr}`;
   if (state.draft && state.draft.waypoints.length) {
     const last = state.draft.waypoints[state.draft.waypoints.length - 1];
     state.draft.preview = jsAStar(last, [hq, hr], state.draft.kind) || [];
@@ -1017,6 +1020,66 @@ clearBtn.onclick = () => {
   clearBtn.textContent = "Clear all";
   clearBtn.classList.remove("active");
   send({ op: "clear_all" });
+};
+function exportPNG() {
+  if (!state.hexes.size) {
+    toast("Nothing to export yet");
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const cell of state.hexes.values()) {
+    const [x, y] = hexToPixel(cell.q, cell.r);
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const pad = HEX_SIZE * 2.5;
+  const wWorld = maxX - minX + pad * 2, hWorld = maxY - minY + pad * 2;
+  const exScale = Math.min(2.4, 8000 / Math.max(wWorld, hWorld));
+  const off = document.createElement("canvas");
+  off.width = Math.ceil(wWorld * exScale);
+  off.height = Math.ceil(hWorld * exScale);
+  const saved = { ctx, ox: state.offsetX, oy: state.offsetY, s: state.scale };
+  ctx = off.getContext("2d");
+  state.scale = exScale;
+  state.offsetX = -(minX - pad) * exScale;
+  state.offsetY = -(minY - pad) * exScale;
+  exporting = true;
+  try {
+    draw();
+  } finally {
+    exporting = false;
+    ctx = saved.ctx;
+    state.offsetX = saved.ox;
+    state.offsetY = saved.oy;
+    state.scale = saved.s;
+  }
+  off.toBlob((blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "world-map.png";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+  draw();
+  toast("PNG exported");
+}
+
+document.getElementById("exportPngBtn").onclick = exportPNG;
+
+const coordsEl = document.getElementById("coords");
+const gotoInput = document.getElementById("gotoInput");
+gotoInput.onchange = () => {
+  const m = gotoInput.value.trim().match(/^(-?\d+)\s*[,;\s]\s*(-?\d+)$/);
+  if (!m) {
+    if (gotoInput.value.trim()) toast("Use q,r — e.g. 4,-2");
+    return;
+  }
+  const [wx, wy] = hexToPixel(+m[1], +m[2]);
+  state.offsetX = canvas.width / 2 - wx * state.scale;
+  state.offsetY = canvas.height / 2 - wy * state.scale;
+  draw();
+  gotoInput.value = "";
+  gotoInput.blur();
 };
 document.getElementById("exportBtn").onclick = () => {
   const a = document.createElement("a");

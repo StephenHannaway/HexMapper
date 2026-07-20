@@ -38,6 +38,8 @@
   #presence .dot { color: #6dd36d; margin-right: 5px; }
   #hint { font-size: 11px; color: #6f6f7a; line-height: 1.5; margin-top: auto; }
   #status { font-size: 11px; color: #8a8a96; }
+  #coords { font-size: 11px; color: #6f6f7a; }
+  #gotoInput { padding: 5px 8px; font-size: 12px; cursor: text; }
   #toast { position: fixed; left: 12px; bottom: 12px; background: #34343ccc;
     padding: 6px 12px; border-radius: 6px; font-size: 12px; opacity: 0;
     transition: opacity .3s; pointer-events: none; }
@@ -90,6 +92,7 @@
     <button id="layerBtn">Add layer (ring)</button>
     <button id="centerBtn">Centre map</button>
     <button id="exportBtn">Export .hexmap</button>
+    <button id="exportPngBtn">Export PNG</button>
     <button id="importBtn" class="dm-only">Import .hexmap</button>
     <input id="importInput" type="file" accept=".hexmap,.hexmap2,application/json" hidden>
     <button id="clearBtn" class="dm-only">Clear all</button>
@@ -100,6 +103,8 @@
     <h2>Recent changes</h2>
     <div id="history">…</div>
     <div id="hint">move: arrows / WASD / space-drag / right-drag<br>zoom: wheel, pinch or +/−<br>press ? for all shortcuts</div>
+    <div id="coords">&nbsp;</div>
+    <input id="gotoInput" type="text" placeholder="go to q,r">
     <div id="status">connecting…</div>
   </div>
   <div id="toast"></div>
