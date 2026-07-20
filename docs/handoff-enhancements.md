@@ -3,9 +3,11 @@
 Handoff for a fresh Claude Code session working in `C:\Users\Steph\Projects\Code\Hex Editor`.
 Read this whole file before starting. Pick items by priority unless Stephen says otherwise.
 
-**Status 2026-07-20:** 14 of the original 25 items are done (plus fixes) on branch
-`feat/enhancements-batch-1`, draft PR #1 — not yet merged or deployed. The done work
-is summarised under "What's been built" and each finished item below is marked ✓.
+**Status 2026-07-20:** 19 of 27 items are done (the original 25 plus roads & rivers)
+on branch `feat/enhancements-batch-1`, draft PR #1 — not yet merged or deployed. The
+done work is summarised under "What's been built" and each finished item below is ✓.
+Remaining: 4 (undo), 5 (rate limiting), 10 (travel measure), 12 (multiple maps),
+16 (last-edited-by hover), 21 (minimap), 23 (theme/grid options).
 
 ## What this project is
 
@@ -109,9 +111,9 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
 ### West Marches gameplay
 
 6. ✓ **Hex notes.**
-7. **P2 · M — Named place labels.** Text labels rendered on/under hexes at readable
-   zoom levels (e.g. "Akaford"). Store as per-hex `label`; declutter by hiding when
-   zoomed far out. (`store.py`, `app.py`, `web/app.js`)
+7. ✓ **Named place labels.** Per-hex `label` column (auto-migrated), `set_label` op,
+   set via a "Place name" field in the notes panel; drawn as outlined text under the
+   hex centre, hidden below ~11px hex size and on fogged player hexes. Rides `.hexmap`.
 8. ✓ **Party position marker.**
 9. ✓ **Fog-of-war mode.**
 10. **P3 · M — Travel measure tool.** Click two hexes → hex distance + path
@@ -137,12 +139,14 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
 17. ✓ **Touch support.** (Implemented; still wants a real-phone sanity check.)
 18. ✓ **Visual icon picker.**
 19. ✓ **Keyboard shortcuts + help overlay.**
-20. **P2 · M — PNG export.** Render the full map to an offscreen canvas and download
-    as PNG for Discord sharing. Respect fog for player exports. (`web/app.js`)
+20. ✓ **PNG export.** "Export PNG" renders the whole map to an offscreen canvas sized
+    to the hex bounds and downloads `world-map.png`. `draw()` targets a swappable
+    `ctx`; ephemeral overlays skipped via an `exporting` flag; player exports respect
+    fog (fogged hexes render blank as on screen). (`web/app.js`)
 21. **P2 · M — Minimap.** Small overview in a corner with a viewport rectangle;
     click to jump. Render cheaply from hex data at low res. (`web/app.js`)
-22. **P3 · S — Hex coordinate readout + jump.** Show `q,r` under the cursor; a "go to
-    coordinate" box. The cursor-op plumbing already computes the hovered hex. (`web/app.js`)
+22. ✓ **Hex coordinate readout + jump.** Sidebar shows `q,r` under the cursor; a
+    "go to q,r" box recentres the view on a typed hex. (`web/app.js`)
 23. **P3 · M — Theme & grid options.** Light map background option, grid line
     toggle/strength, saved per player in localStorage. (`web/index.html`, `web/app.js`)
 
@@ -168,9 +172,11 @@ then two thin tool variants.
 
 ## Suggested next batch
 
-Ask Stephen — 20 (PNG export) and 7 (labels) are the likely next picks; 10 (travel
-measure) is now more attractive since roads exist to discount travel cost; 4 (undo)
-when a quiet day allows.
+Likely next picks: 21 (minimap) and 10 (travel measure — roads exist now to discount
+travel cost) are the highest-value remaining; 16 (last-edited-by hover) is nearly free
+given the audit log; 4 (undo) when a quiet day allows; 5 (rate limiting) is a quick
+safety win now that live cursors add traffic. Ask Stephen before the big structural
+one (12, multiple maps).
 
 ## Gotchas learned the hard way
 
