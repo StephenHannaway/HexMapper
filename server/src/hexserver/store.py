@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from hexserver.config import TERRAINS
+from hexserver.pathfind import NEIGHBOURS as NEIGHBOURS  # re-export
 
-NEIGHBOURS = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)]
+FEATURE_KINDS = ("road", "river")
 
 
 class MapStore:
