@@ -3,11 +3,11 @@
 Handoff for a fresh Claude Code session working in `C:\Users\Steph\Projects\Code\Hex Editor`.
 Read this whole file before starting. Pick items by priority unless Stephen says otherwise.
 
-**Status 2026-07-20:** 19 of 27 items are done (the original 25 plus roads & rivers)
-on branch `feat/enhancements-batch-1`, draft PR #1 — not yet merged or deployed. The
-done work is summarised under "What's been built" and each finished item below is ✓.
-Remaining: 4 (undo), 5 (rate limiting), 10 (travel measure), 12 (multiple maps),
-16 (last-edited-by hover), 21 (minimap), 23 (theme/grid options).
+**Status 2026-07-21:** 26 of 27 items are done. Batch 1 (items 1-3, 6-9, 13-15,
+17-20, 22, 24-27) merged and deployed. Batch 2 on branch `feat/finish-backlog`
+adds 4 (undo), 5 (rate limiting), 10 (travel measure), 16 (last-edited-by), 21
+(minimap), 23 (theme/grid) plus a sidebar layout redesign. **Only 12 (multiple
+maps) remains** — the big structural one; do it on its own branch.
 
 ## What this project is
 
@@ -101,12 +101,12 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
 1. ✓ **DM role via second key.**
 2. ✓ **Map import/restore endpoint.**
 3. ✓ **Edit history / audit log.**
-4. **P2 · L — Undo.** Global undo of the last N ops from the ops log (DM-only), or
-   per-hex "revert to previous". The ops log (item 3) exists; `detail` currently
-   records the *new* state only — undo needs prior-state capture added to `log_op`
-   call sites, or a rework to log before/after. (`store.py`, `app.py`, `web/`)
-5. **P3 · S — Rate limiting.** Cap ops/second per connection to stop a stuck client
-   or griefer from flooding. Live cursors make this slightly more pressing. (`app.py`)
+4. ✓ **Undo.** DM-only. Each mutating store method captures an inverse onto a
+   capped 100-entry `undo` table; the `undo` op pops and applies it, then
+   broadcasts a snapshot. Undo button (disabled via snapshot `can_undo`) + Ctrl+Z.
+5. ✓ **Rate limiting.** Token-bucket per WS connection (`RateLimiter`, 40 burst,
+   25/s). A dropped non-cursor op replies `{error, resync:true}` so the client
+   refetches the snapshot and can't diverge from a silently-dropped edit.
 
 ### West Marches gameplay
 
@@ -116,9 +116,9 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
    hex centre, hidden below ~11px hex size and on fogged player hexes. Rides `.hexmap`.
 8. ✓ **Party position marker.**
 9. ✓ **Fog-of-war mode.**
-10. **P3 · M — Travel measure tool.** Click two hexes → hex distance + path
-    highlight + configurable "days at N hexes/day". Pure client feature. Once
-    items 26/27 land, roads should reduce travel cost. (`web/app.js`)
+10. ✓ **Travel measure tool.** Measure tool (T): click start then end → hex
+    distance + days at a configurable `hexes/day`; a client travel A* routes the
+    highlighted path and roads discount it ("N via roads"). Pure client feature.
 11. *(superseded — see items 26/27, planned in
     `docs/superpowers/plans/2026-07-20-roads-and-rivers.md`)*
 12. **P3 · L — Multiple maps.** Region maps / dungeon maps with a switcher; maps
@@ -129,10 +129,9 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
 13. ✓ **Live cursors.**
 14. ✓ **Hex ping.**
 15. ✓ **Presence polish.**
-16. **P3 · S — "Last edited by" on hover.** Tooltip showing who last touched a hex.
-    Cheapest route now: per-hex `edited_by` column updated in `set_hex`/`set_icon`,
-    surfaced in snapshot; the ops log alone can't answer historical hexes cheaply.
-    (`store.py`, `web/app.js`)
+16. ✓ **"Last edited by" on hover.** Per-hex `edited_by` column stamped on
+    paint/icon/note/label, surfaced in the snapshot, broadcasts and `.hexmap`
+    export; shown in the sidebar coordinate readout on hover (fog-aware).
 
 ### UX & rendering
 
@@ -143,12 +142,13 @@ Sizes: S (<1h), M (half day), L (day+). ✓ = done on `feat/enhancements-batch-1
     to the hex bounds and downloads `world-map.png`. `draw()` targets a swappable
     `ctx`; ephemeral overlays skipped via an `exporting` flag; player exports respect
     fog (fogged hexes render blank as on screen). (`web/app.js`)
-21. **P2 · M — Minimap.** Small overview in a corner with a viewport rectangle;
-    click to jump. Render cheaply from hex data at low res. (`web/app.js`)
+21. ✓ **Minimap.** Bottom-right overview rendered from hex data at low res with a
+    live viewport rectangle and party dot; click to recentre. Toggle in Display.
 22. ✓ **Hex coordinate readout + jump.** Sidebar shows `q,r` under the cursor; a
     "go to q,r" box recentres the view on a typed hex. (`web/app.js`)
-23. **P3 · M — Theme & grid options.** Light map background option, grid line
-    toggle/strength, saved per player in localStorage. (`web/index.html`, `web/app.js`)
+23. ✓ **Theme & grid options.** Light-background toggle, grid on/off + strength,
+    minimap toggle, travel rate — all in a Display section, saved to localStorage
+    under `hexPrefs`.
 
 ### Engineering & ops
 
@@ -172,11 +172,10 @@ then two thin tool variants.
 
 ## Suggested next batch
 
-Likely next picks: 21 (minimap) and 10 (travel measure — roads exist now to discount
-travel cost) are the highest-value remaining; 16 (last-edited-by hover) is nearly free
-given the audit log; 4 (undo) when a quiet day allows; 5 (rate limiting) is a quick
-safety win now that live cursors add traffic. Ask Stephen before the big structural
-one (12, multiple maps).
+Only item 12 (multiple maps) is left — region/dungeon maps with a switcher: a
+`maps` table, `map_id` on hexes/features/meta, per-map WS rooms, and a client map
+switcher. It touches every store method and op, so do it on its own branch with a
+backward-compatible additive migration (existing data becomes the default map).
 
 ## Gotchas learned the hard way
 
