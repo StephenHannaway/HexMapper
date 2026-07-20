@@ -157,19 +157,20 @@ Full implementation plan with code: `docs/superpowers/plans/2026-07-20-roads-and
 Shared infrastructure (features table, A* pathfinding, feature rendering) built once,
 then two thin tool variants.
 
-26. **P1 · L — Dynamic road building.** Road tool: click waypoints; the road is
-    routed *intelligently* between them (A* over terrain costs — roads prefer flat
-    charted land, reuse existing roads, avoid water/mountains); live preview while
-    placing; hexes know which roads cross them (`features_at(q, r)`).
-    (`store.py`, `pathfind.py` [new], `app.py`, `web/app.js`, `web/index.html`)
-27. **P1 · L — Dynamic river building.** Same tool skeleton, river cost profile
-    (rivers hug low/wet terrain, merge with existing rivers, run to lakes/ocean),
-    distinct rendering (wide blue under roads). (same files as 26)
+26. ✓ **Dynamic road building.** Road tool (O): click waypoints, dashed live A*
+    preview, Enter/double-click builds, Esc cancels, Shift-click removes. Server
+    routes authoritatively (`pathfind.py`, cost tables in `config.py`, served to the
+    client via `/api/config.feature_costs`); `features` table; awareness via
+    `store.features_at(q, r)` / client `featureIdsAt(q, r)`.
+27. ✓ **Dynamic river building.** Same skeleton, river cost profile, wide blue
+    rendering beneath roads; both fog-aware (players see lines break at unexplored
+    hexes) and both round-trip through `.hexmap`.
 
 ## Suggested next batch
 
-`26 → 27` (one plan, do together) → then ask Stephen — 20 (PNG export) and 7 (labels)
-are the likely next picks; 4 (undo) when a quiet day allows.
+Ask Stephen — 20 (PNG export) and 7 (labels) are the likely next picks; 10 (travel
+measure) is now more attractive since roads exist to discount travel cost; 4 (undo)
+when a quiet day allows.
 
 ## Gotchas learned the hard way
 

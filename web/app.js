@@ -21,9 +21,20 @@ const state = {
   party: null, // {q, r} shared party position
   hadSnapshot: false,
   fog: false,
+  features: new Map(), // id -> {id, kind, path, created_by}
+  featureCosts: null,
+  draft: null, // {kind, waypoints: [[q,r],...], preview: [[q,r],...]}
 };
 
 const key = (q, r) => `${q},${r}`;
+
+function featureIdsAt(q, r) {
+  const ids = [];
+  for (const f of state.features.values()) {
+    if (f.path.some(([pq, pr]) => pq === q && pr === r)) ids.push(f.id);
+  }
+  return ids;
+}
 
 function hexToPixel(q, r) {
   return [HEX_SIZE * 1.5 * q, HEX_SIZE * SQRT3 * (r + q / 2)];
@@ -56,6 +67,72 @@ function traceHex(sx, sy, size) {
     i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
   }
   ctx.closePath();
+}
+
+const FEATURE_STYLE = {
+  river: { stroke: "#4a90d9", width: 0.3, casing: null },
+  road: { stroke: "#8b6b3d", width: 0.18, casing: "#00000055" },
+};
+
+function pathToPoints(path) {
+  return path.map(([q, r]) => {
+    const [wx, wy] = hexToPixel(q, r);
+    return [wx * state.scale + state.offsetX, wy * state.scale + state.offsetY];
+  });
+}
+
+function tracePolyline(pts) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2;
+    const my = (pts[i][1] + pts[i + 1][1]) / 2;
+    ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+  }
+  ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+}
+
+function strokeFeature(path, kind, dashed) {
+  const pts = pathToPoints(path);
+  if (pts.length < 2) return;
+  const size = HEX_SIZE * state.scale;
+  const style = FEATURE_STYLE[kind];
+  ctx.lineCap = ctx.lineJoin = "round";
+  if (dashed) ctx.setLineDash([6, 6]);
+  if (style.casing && !dashed) {
+    tracePolyline(pts);
+    ctx.strokeStyle = style.casing;
+    ctx.lineWidth = size * (style.width + 0.1);
+    ctx.stroke();
+  }
+  tracePolyline(pts);
+  ctx.strokeStyle = style.stroke;
+  ctx.lineWidth = Math.max(1.5, size * style.width);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawFeaturePaths(kind) {
+  const hideFog = state.fog && state.role !== "dm";
+  for (const f of state.features.values()) {
+    if (f.kind !== kind) continue;
+    let runs = [f.path];
+    if (hideFog) {
+      // players see roads/rivers break at unexplored territory
+      runs = [];
+      let cur = [];
+      for (const [q, r] of f.path) {
+        const cell = state.hexes.get(key(q, r));
+        if (cell && cell.explored) cur.push([q, r]);
+        else if (cur.length) {
+          runs.push(cur);
+          cur = [];
+        }
+      }
+      if (cur.length) runs.push(cur);
+    }
+    for (const run of runs) strokeFeature(run, kind, false);
+  }
 }
 
 function draw() {
@@ -105,6 +182,18 @@ function draw() {
       ctx.fillStyle = "#00000073";
       ctx.fill();
     }
+  }
+  drawFeaturePaths("river");
+  drawFeaturePaths("road");
+  if (state.draft && state.draft.waypoints.length) {
+    const committed = state.draft.committed;
+    const preview = state.draft.preview || [];
+    const full = committed.concat(
+      committed.length && preview.length ? preview.slice(1) : preview
+    );
+    ctx.globalAlpha = 0.5;
+    strokeFeature(full.length > 1 ? full : state.draft.waypoints, state.draft.kind, true);
+    ctx.globalAlpha = 1;
   }
   const cutoff = Date.now() - 6000;
   for (const c of cursors.values()) {
@@ -178,6 +267,78 @@ function nameColor(name) {
   return `hsl(${h}, 65%, 60%)`;
 }
 
+// --- road & river drafting ---
+
+function hexDist(aq, ar, bq, br) {
+  const dq = aq - bq, dr = ar - br;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+}
+
+function featureCost(kind, q, r) {
+  const cfg = state.featureCosts[kind];
+  const cell = state.hexes.get(key(q, r));
+  let base = cell ? (cfg.terrains[cell.terrain] ?? cfg.default) : cfg.default;
+  for (const f of state.features.values()) {
+    if (f.kind === kind && f.path.some(([pq, pr]) => pq === q && pr === r)) {
+      base *= state.featureCosts.reuse;
+      break;
+    }
+  }
+  return base;
+}
+
+const AXIAL_DIRS = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+
+function jsAStar(start, goal, kind, maxNodes = 3000) {
+  if (!state.featureCosts) return null;
+  if (start[0] === goal[0] && start[1] === goal[1]) return [start];
+  const g = new Map([[key(...start), 0]]);
+  const came = new Map();
+  const open = [[hexDist(...start, ...goal), start]];
+  let explored = 0;
+  while (open.length) {
+    open.sort((a, b) => a[0] - b[0]);
+    const [, cur] = open.shift();
+    if (cur[0] === goal[0] && cur[1] === goal[1]) {
+      const path = [cur];
+      let k = key(...cur);
+      while (came.has(k)) {
+        path.unshift(came.get(k));
+        k = key(...came.get(k));
+      }
+      return path;
+    }
+    if (++explored > maxNodes) break;
+    const gCur = g.get(key(...cur));
+    for (const [dq, dr] of AXIAL_DIRS) {
+      const nxt = [cur[0] + dq, cur[1] + dr];
+      const t = gCur + featureCost(kind, nxt[0], nxt[1]);
+      const nk = key(...nxt);
+      if (t < (g.get(nk) ?? Infinity)) {
+        g.set(nk, t);
+        came.set(nk, cur);
+        open.push([t + hexDist(...nxt, ...goal), nxt]);
+      }
+    }
+  }
+  return null; // no preview — the server stays authoritative on submit
+}
+
+function finishDraft() {
+  if (!state.draft || state.draft.waypoints.length < 2) return false;
+  send({ op: "add_feature", kind: state.draft.kind, waypoints: state.draft.waypoints });
+  state.draft = null;
+  draw();
+  return true;
+}
+
+function cancelDraft() {
+  if (!state.draft) return false;
+  state.draft = null;
+  draw();
+  return true;
+}
+
 function sendCursor(q, r) {
   const now = Date.now();
   const ck = key(q, r);
@@ -243,6 +404,8 @@ function connect() {
       msg.hexes.forEach(applyHex);
       state.party = msg.party || null;
       state.fog = !!msg.fog;
+      state.features.clear();
+      (msg.features || []).forEach((f) => state.features.set(f.id, f));
       updateFogBtn();
       state.version = msg.version;
       if (firstLoad) fitView();
@@ -269,6 +432,10 @@ function connect() {
           cell.note_author = msg.note_author;
           refreshNotePanel(msg.q, msg.r);
         }
+      } else if (msg.op === "add_feature") {
+        state.features.set(msg.feature.id, msg.feature);
+      } else if (msg.op === "remove_feature") {
+        state.features.delete(msg.id);
       } else if (msg.op === "set_explored") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) cell.explored = msg.explored ? 1 : 0;
@@ -291,7 +458,11 @@ function connect() {
         ts: Date.now() / 1000,
         player: msg.by || "someone",
         op: msg.op,
-        detail: { q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon },
+        detail: {
+          q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon,
+          explored: msg.explored, enabled: msg.enabled,
+          kind: msg.feature ? msg.feature.kind : undefined,
+        },
       });
     } else if (msg.type === "ping") {
       addPing(msg.q, msg.r);
@@ -322,6 +493,8 @@ async function resync() {
     snap.hexes.forEach(applyHex);
     state.party = snap.party || null;
     state.fog = !!snap.fog;
+    state.features.clear();
+    (snap.features || []).forEach((f) => state.features.set(f.id, f));
     updateFogBtn();
     state.version = snap.version;
     draw();
@@ -332,7 +505,7 @@ async function resync() {
 
 // --- editing ---
 
-function editAt(clientX, clientY) {
+function editAt(clientX, clientY, ev) {
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = screenToWorld(
     (clientX - rect.left) * devicePixelRatio,
@@ -342,7 +515,30 @@ function editAt(clientX, clientY) {
   const k = key(q, r);
   const cell = state.hexes.get(k);
 
-  if (state.tool === "note") {
+  if (state.tool === "road" || state.tool === "river") {
+    if (ev && ev.shiftKey) {
+      const ids = featureIdsAt(q, r);
+      if (ids.length) send({ op: "remove_feature", id: ids[ids.length - 1] });
+      else toast("No road or river there");
+      return;
+    }
+    if (!state.draft || state.draft.kind !== state.tool) {
+      state.draft = { kind: state.tool, waypoints: [], committed: [], preview: [] };
+    }
+    const d = state.draft;
+    if (d.waypoints.length) {
+      const leg = jsAStar(d.waypoints[d.waypoints.length - 1], [q, r], d.kind) || [];
+      d.committed.push(...(d.committed.length ? leg.slice(1) : leg));
+    }
+    d.waypoints.push([q, r]);
+    d.preview = [];
+    toast(
+      d.waypoints.length < 2
+        ? "Click more waypoints — Enter or double-click builds, Esc cancels"
+        : `${d.waypoints.length} waypoints — Enter builds, Esc cancels`
+    );
+    draw();
+  } else if (state.tool === "note") {
     if (state.fog && state.role !== "dm" && cell && !cell.explored) {
       toast("Unexplored territory");
     } else {
@@ -400,8 +596,10 @@ canvas.addEventListener("pointerdown", (e) => {
   }
   if (pointers.size > 2) return;
   lastX = e.clientX; lastY = e.clientY; moved = 0;
+  const featureTool = state.tool === "road" || state.tool === "river";
   const panning =
-    state.tool === "pan" || spaceHeld || e.button === 1 || e.button === 2 || e.shiftKey;
+    state.tool === "pan" || spaceHeld || e.button === 1 || e.button === 2 ||
+    (e.shiftKey && !featureTool); // shift+click on feature tools = remove, not pan
   if (panning) {
     dragging = true;
     canvas.style.cursor = "grabbing";
@@ -433,7 +631,7 @@ canvas.addEventListener("pointermove", (e) => {
     state.offsetY += dy * devicePixelRatio;
     draw();
   } else if (painting && state.tool === "paint") {
-    editAt(e.clientX, e.clientY);
+    editAt(e.clientX, e.clientY, e);
   }
   const rect = canvas.getBoundingClientRect();
   const [hwx, hwy] = screenToWorld(
@@ -441,6 +639,11 @@ canvas.addEventListener("pointermove", (e) => {
     (e.clientY - rect.top) * devicePixelRatio
   );
   const [hq, hr] = pixelToHex(hwx, hwy);
+  if (state.draft && state.draft.waypoints.length) {
+    const last = state.draft.waypoints[state.draft.waypoints.length - 1];
+    state.draft.preview = jsAStar(last, [hq, hr], state.draft.kind) || [];
+    draw();
+  }
   sendCursor(hq, hr);
 });
 
@@ -455,7 +658,7 @@ canvas.addEventListener("pointerup", (e) => {
   const wasPainting = painting && !didPinch;
   const doEdit = wasPainting && (state.tool !== "paint" || moved < 6);
   endPointer(e);
-  if (doEdit) editAt(e.clientX, e.clientY);
+  if (doEdit) editAt(e.clientX, e.clientY, e);
 });
 
 canvas.addEventListener("pointercancel", endPointer);
@@ -503,16 +706,18 @@ function zoomAtCenter(factor) {
   draw();
 }
 
-const TOOL_KEYS = { p: "pan", b: "paint", i: "icon", n: "note", m: "party", r: "remove" };
+const TOOL_KEYS = { p: "pan", b: "paint", i: "icon", n: "note", m: "party", o: "road", v: "river", r: "remove" };
 const helpOverlay = document.getElementById("helpOverlay");
 helpOverlay.onclick = () => { helpOverlay.hidden = true; };
 
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!helpOverlay.hidden) { helpOverlay.hidden = true; return; }
+    if (cancelDraft()) return;
     if (!notePanel.hidden) { closeNotePanel(); return; }
   }
   if (isTyping()) return;
+  if (e.key === "Enter" && finishDraft()) return;
   if (e.key === "?") {
     helpOverlay.hidden = !helpOverlay.hidden;
     return;
@@ -568,6 +773,7 @@ function fitView() {
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 canvas.addEventListener("dblclick", (e) => {
+  if (finishDraft()) return;
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = screenToWorld(
     (e.clientX - rect.left) * devicePixelRatio,
@@ -586,9 +792,10 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["revealBtn", "reveal"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["roadBtn", "road"], ["riverBtn", "river"], ["revealBtn", "reveal"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
+  if (state.draft && state.draft.kind !== tool) cancelDraft();
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
 }
 
@@ -696,6 +903,8 @@ function opText(e) {
     case "set_party": return `moved the party to${at}`;
     case "set_explored": return `${d.explored ? "revealed" : "hid"} hex${at}`;
     case "set_fog": return `turned fog of war ${d.enabled ? "on" : "off"}`;
+    case "add_feature": return `built a ${d.kind || "path"}`;
+    case "remove_feature": return "removed a road/river";
     case "add_layer": case "apply_hexes": return "added a ring of hexes";
     case "clear_all": return "cleared the map";
     case "import": return "restored a map";
@@ -752,6 +961,8 @@ document.getElementById("centerBtn").onclick = fitView;
 document.getElementById("paintBtn").onclick = () => setTool("paint");
 document.getElementById("iconBtn").onclick = () => setTool("icon");
 document.getElementById("partyBtn").onclick = () => setTool("party");
+document.getElementById("roadBtn").onclick = () => setTool("road");
+document.getElementById("riverBtn").onclick = () => setTool("river");
 document.getElementById("revealBtn").onclick = () => setTool("reveal");
 const fogBtn = document.getElementById("fogBtn");
 function updateFogBtn() {
@@ -828,6 +1039,7 @@ async function init() {
   state.terrains = cfg.terrains;
   state.icons = cfg.icons;
   state.role = cfg.role || "dm";
+  state.featureCosts = cfg.feature_costs;
   document.querySelectorAll(".dm-only").forEach((el) => {
     el.style.display = state.role === "dm" ? "" : "none";
   });
