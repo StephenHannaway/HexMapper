@@ -35,6 +35,11 @@ class MapStore:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS features ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "kind TEXT, path TEXT, created_by TEXT, ts REAL)"
+        )
         self.version = 0
         if seed_file is not None and self.count() == 0 and seed_file.exists():
             self.import_hexmap(json.loads(seed_file.read_text()))
@@ -51,6 +56,7 @@ class MapStore:
             "version": self.version,
             "party": self.party(),
             "fog": self.fog_enabled(),
+            "features": self.features(),
             "hexes": [
                 {
                     "q": q,
@@ -124,6 +130,7 @@ class MapStore:
 
     def clear_all(self) -> None:
         self.db.execute("DELETE FROM hexes")
+        self.db.execute("DELETE FROM features")
         self.db.execute(
             "INSERT INTO hexes (q, r, terrain, icon) VALUES (0, 0, 'FOG', NULL)"
         )
@@ -152,6 +159,47 @@ class MapStore:
         )
         self.db.commit()
         self.version += 1
+
+    def add_feature(
+        self, kind: str, path: list[tuple[int, int]], created_by: str
+    ) -> dict[str, Any]:
+        if kind not in FEATURE_KINDS:
+            raise ValueError(f"unknown feature kind {kind!r}")
+        cur = self.db.execute(
+            "INSERT INTO features (kind, path, created_by, ts) VALUES (?, ?, ?, ?)",
+            (kind, json.dumps([[q, r] for q, r in path]), created_by, time.time()),
+        )
+        self.db.commit()
+        self.version += 1
+        return {
+            "id": cur.lastrowid,
+            "kind": kind,
+            "path": [[q, r] for q, r in path],
+            "created_by": created_by,
+        }
+
+    def remove_feature(self, feature_id: int) -> None:
+        cur = self.db.execute("DELETE FROM features WHERE id = ?", (feature_id,))
+        self.db.commit()
+        if not cur.rowcount:
+            raise ValueError(f"no feature {feature_id}")
+        self.version += 1
+
+    def features(self) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT id, kind, path, created_by FROM features ORDER BY id"
+        ).fetchall()
+        return [
+            {"id": i, "kind": k, "path": json.loads(p), "created_by": c}
+            for i, k, p, c in rows
+        ]
+
+    def features_at(self, q: int, r: int) -> list[int]:
+        return [f["id"] for f in self.features() if [q, r] in f["path"]]
+
+    def terrain_map(self) -> dict[tuple[int, int], str]:
+        rows = self.db.execute("SELECT q, r, terrain FROM hexes").fetchall()
+        return {(q, r): t for q, r, t in rows}
 
     def party(self) -> dict[str, Any] | None:
         row = self.db.execute("SELECT value FROM meta WHERE key = 'party'").fetchone()
@@ -205,6 +253,19 @@ class MapStore:
                 if h["terrain"] in TERRAINS
             ],
         )
+        self.db.execute("DELETE FROM features")
+        for f in data.get("features", []):
+            if f.get("kind") in FEATURE_KINDS and isinstance(f.get("path"), list):
+                self.db.execute(
+                    "INSERT INTO features (kind, path, created_by, ts) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        f["kind"],
+                        json.dumps(f["path"]),
+                        f.get("created_by"),
+                        time.time(),
+                    ),
+                )
         self.db.commit()
         self.version += 1
 
@@ -212,8 +273,9 @@ class MapStore:
         rows = self.db.execute(
             "SELECT q, r, terrain, icon, note, note_author FROM hexes"
         ).fetchall()
-        # note fields are extra keys the desktop app's from_json_dict ignores
+        # note fields and the features key are extras the desktop app ignores
         return {
+            "features": self.features(),
             "hexes": [
                 {
                     "q": q,
@@ -224,5 +286,5 @@ class MapStore:
                     "note_author": note_author,
                 }
                 for q, r, terrain, icon, note, note_author in rows
-            ]
+            ],
         }

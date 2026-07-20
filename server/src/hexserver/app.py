@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import json
 import logging
 import os
@@ -11,7 +12,16 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from hexserver.config import ICONS, TERRAINS
+from hexserver.config import (
+    ICONS,
+    REUSE_DISCOUNT,
+    RIVER_COSTS,
+    RIVER_DEFAULT,
+    ROAD_COSTS,
+    ROAD_DEFAULT,
+    TERRAINS,
+)
+from hexserver.pathfind import a_star, build_cost
 from hexserver.store import MapStore
 
 logger = logging.getLogger(__name__)
@@ -102,6 +112,11 @@ async def get_config(request: Request) -> JSONResponse:
             "role": role_for(
                 request.cookies.get("mapkey"), request.query_params.get("key")
             ),
+            "feature_costs": {
+                "road": {"terrains": ROAD_COSTS, "default": ROAD_DEFAULT},
+                "river": {"terrains": RIVER_COSTS, "default": RIVER_DEFAULT},
+                "reuse": REUSE_DISCOUNT,
+            },
         }
     )
 
@@ -195,6 +210,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "icon",
                                 "explored",
                                 "enabled",
+                                "kind",
+                                "id",
                             )
                             if k in msg
                         },
@@ -212,6 +229,28 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 
 DM_OPS = {"clear_all", "set_explored", "set_fog"}
+
+
+def plan_feature_path(
+    kind: str, waypoints: list[tuple[int, int]]
+) -> list[tuple[int, int]]:
+    if not 2 <= len(waypoints) <= 12:
+        raise ValueError("need 2-12 waypoints")
+    terrain = store.terrain_map()
+    occupied = {
+        (int(q), int(r))
+        for f in store.features()
+        if f["kind"] == kind
+        for q, r in f["path"]
+    }
+    cost = build_cost(kind, terrain, occupied)
+    path: list[tuple[int, int]] = []
+    for a, b in itertools.pairwise(waypoints):
+        leg = a_star(a, b, cost)
+        path.extend(leg if not path else leg[1:])  # dedupe joints
+    if len(path) > 300:
+        raise ValueError("path too long (max 300 hexes)")
+    return path
 
 
 def apply_op(
@@ -298,6 +337,26 @@ def apply_op(
             "version": store.version,
             "q": q,
             "r": r,
+        }
+    if op == "add_feature":
+        kind = str(msg["kind"])
+        waypoints = [(int(q), int(r)) for q, r in msg["waypoints"]]
+        routed = plan_feature_path(kind, waypoints)
+        feature = store.add_feature(kind, routed, author)
+        return {
+            "type": "op",
+            "op": "add_feature",
+            "version": store.version,
+            "feature": feature,
+        }
+    if op == "remove_feature":
+        fid = int(msg["id"])
+        store.remove_feature(fid)
+        return {
+            "type": "op",
+            "op": "remove_feature",
+            "version": store.version,
+            "id": fid,
         }
     if op == "add_layer":
         added = store.add_layer(str(msg["terrain"]))

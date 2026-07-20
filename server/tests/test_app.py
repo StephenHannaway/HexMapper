@@ -276,3 +276,78 @@ def test_cursor_broadcast_excludes_sender(client: TestClient) -> None:
         assert ws1.receive_json()["type"] == "ping"
     assert app_module.store.version == before
     assert app_module.store.history(10) == []
+
+
+def test_add_feature_routes_between_waypoints(client: TestClient) -> None:
+    for q in range(5):
+        app_module.store.set_hex(q, 0, "GRASSLAND")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json(
+            {"op": "add_feature", "kind": "road", "waypoints": [[0, 0], [4, 0]]}
+        )
+        msg = ws.receive_json()
+        assert msg["op"] == "add_feature"
+        f = msg["feature"]
+        assert f["kind"] == "road"
+        assert f["path"][0] == [0, 0]
+        assert f["path"][-1] == [4, 0]
+        assert len(f["path"]) == 5  # straight over uniform grassland
+    assert app_module.store.features_at(2, 0) == [f["id"]]
+
+
+def test_add_feature_avoids_water(client: TestClient) -> None:
+    for q in range(5):
+        for r in (-1, 0, 1):
+            app_module.store.set_hex(q, r, "GRASSLAND")
+    app_module.store.set_hex(2, 0, "LAKE")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json(
+            {"op": "add_feature", "kind": "road", "waypoints": [[0, 0], [4, 0]]}
+        )
+        path = ws.receive_json()["feature"]["path"]
+    assert [2, 0] not in path
+
+
+def test_add_feature_validates(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json(
+            {"op": "add_feature", "kind": "canal", "waypoints": [[0, 0], [1, 0]]}
+        )
+        assert ws.receive_json()["type"] == "error"
+        ws.send_json({"op": "add_feature", "kind": "road", "waypoints": [[0, 0]]})
+        assert ws.receive_json()["type"] == "error"
+
+
+def test_remove_feature_broadcasts(client: TestClient) -> None:
+    f = app_module.store.add_feature("river", [(0, 0), (0, 1)], "steph")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "remove_feature", "id": f["id"]})
+        msg = ws.receive_json()
+        assert msg["op"] == "remove_feature"
+        assert msg["id"] == f["id"]
+    assert app_module.store.features() == []
+
+
+def test_config_serves_feature_costs(client: TestClient) -> None:
+    cfg = client.get("/api/config", headers=PLAYER).json()
+    assert cfg["feature_costs"]["road"]["terrains"]["MOUNTAIN"] == 3
+    assert cfg["feature_costs"]["river"]["default"] == 3.0
+    assert cfg["feature_costs"]["reuse"] == 0.25
+
+
+def test_feature_ops_are_logged(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "GRASSLAND")
+    app_module.store.set_hex(1, 0, "GRASSLAND")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json(
+            {"op": "add_feature", "kind": "road", "waypoints": [[0, 0], [1, 0]]}
+        )
+        assert ws.receive_json()["op"] == "add_feature"
+    entries = client.get("/api/history", headers=PLAYER).json()["ops"]
+    assert entries[0]["op"] == "add_feature"
+    assert entries[0]["detail"]["kind"] == "road"

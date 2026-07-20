@@ -195,3 +195,62 @@ def test_explored_migration_defaults_true(tmp_path: Path) -> None:
     con.close()
     store = MapStore(db_file)
     assert store.snapshot()["hexes"][0]["explored"] == 1
+
+
+def test_add_feature_and_snapshot(store: MapStore) -> None:
+    f = store.add_feature("road", [(0, 0), (1, 0), (2, 0)], "steph")
+    assert f["kind"] == "road"
+    assert f["path"] == [[0, 0], [1, 0], [2, 0]]
+    assert f["created_by"] == "steph"
+    snap = store.snapshot()
+    assert snap["features"] == [f]
+
+
+def test_features_at(store: MapStore) -> None:
+    a = store.add_feature("road", [(0, 0), (1, 0)], "steph")
+    b = store.add_feature("river", [(1, 0), (1, 1)], "ines")
+    assert store.features_at(1, 0) == [a["id"], b["id"]]
+    assert store.features_at(0, 0) == [a["id"]]
+    assert store.features_at(9, 9) == []
+
+
+def test_remove_feature(store: MapStore) -> None:
+    f = store.add_feature("road", [(0, 0), (1, 0)], "steph")
+    v = store.version
+    store.remove_feature(f["id"])
+    assert store.features() == []
+    assert store.version == v + 1
+    with pytest.raises(ValueError, match="no feature"):
+        store.remove_feature(f["id"])
+
+
+def test_add_feature_rejects_bad_kind(store: MapStore) -> None:
+    with pytest.raises(ValueError, match="unknown feature kind"):
+        store.add_feature("canal", [(0, 0), (1, 0)], "steph")
+
+
+def test_features_roundtrip_hexmap(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.add_feature("river", [(0, 0), (0, 1)], "steph")
+    data = store.export_hexmap()
+    other = MapStore(Path(":memory:"))
+    other.import_hexmap(data)
+    (f,) = other.features()
+    assert f["kind"] == "river"
+    assert f["path"] == [[0, 0], [0, 1]]
+
+
+def test_import_without_features_key(store: MapStore) -> None:
+    store.import_hexmap({"hexes": [{"q": 0, "r": 0, "terrain": "FOG"}]})
+    assert store.features() == []
+
+
+def test_clear_all_removes_features(store: MapStore) -> None:
+    store.add_feature("road", [(0, 0), (1, 0)], "steph")
+    store.clear_all()
+    assert store.features() == []
+
+
+def test_terrain_map(store: MapStore) -> None:
+    store.set_hex(2, -1, "DESERT")
+    assert store.terrain_map() == {(2, -1): "DESERT"}
