@@ -44,6 +44,7 @@ def test_set_hex_and_snapshot(store: MapStore) -> None:
         "note": None,
         "note_author": None,
         "explored": 1,
+        "label": None,
     } in snap["hexes"]
 
 
@@ -254,3 +255,48 @@ def test_clear_all_removes_features(store: MapStore) -> None:
 def test_terrain_map(store: MapStore) -> None:
     store.set_hex(2, -1, "DESERT")
     assert store.terrain_map() == {(2, -1): "DESERT"}
+
+
+def test_set_label_and_snapshot(store: MapStore) -> None:
+    store.set_hex(1, 1, "CITY")
+    store.set_label(1, 1, "Akaford")
+    (cell,) = store.snapshot()["hexes"]
+    assert cell["label"] == "Akaford"
+
+
+def test_empty_label_clears(store: MapStore) -> None:
+    store.set_hex(0, 0, "CITY")
+    store.set_label(0, 0, "Akaford")
+    store.set_label(0, 0, "  ")
+    assert store.snapshot()["hexes"][0]["label"] is None
+
+
+def test_label_missing_hex_raises(store: MapStore) -> None:
+    with pytest.raises(ValueError, match="no hex"):
+        store.set_label(9, 9, "Nowhere")
+
+
+def test_label_roundtrips_hexmap(store: MapStore) -> None:
+    store.set_hex(0, 0, "CITY")
+    store.set_label(0, 0, "Akaford")
+    other = MapStore(Path(":memory:"))
+    other.import_hexmap(store.export_hexmap())
+    assert other.snapshot()["hexes"][0]["label"] == "Akaford"
+
+
+def test_label_migration(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_file = tmp_path / "old.db"
+    con = sqlite3.connect(db_file)
+    con.execute(
+        "CREATE TABLE hexes (q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
+        "note TEXT, note_author TEXT, explored INTEGER DEFAULT 1, "
+        "PRIMARY KEY (q, r))"
+    )
+    con.execute("INSERT INTO hexes VALUES (0, 0, 'FOG', NULL, NULL, NULL, 1)")
+    con.commit()
+    con.close()
+    store = MapStore(db_file)
+    store.set_label(0, 0, "migrated")
+    assert store.snapshot()["hexes"][0]["label"] == "migrated"

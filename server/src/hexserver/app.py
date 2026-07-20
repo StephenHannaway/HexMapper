@@ -212,6 +212,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "enabled",
                                 "kind",
                                 "id",
+                                "label",
                             )
                             if k in msg
                         },
@@ -327,6 +328,17 @@ def apply_op(
             "op": "set_fog",
             "version": store.version,
             "enabled": enabled,
+        }
+    if op == "set_label":
+        q, r = int(msg["q"]), int(msg["r"])
+        label = store.set_label(q, r, str(msg.get("label") or "")[:40])
+        return {
+            "type": "op",
+            "op": "set_label",
+            "version": store.version,
+            "q": q,
+            "r": r,
+            "label": label,
         }
     if op == "set_party":
         q, r = int(msg["q"]), int(msg["r"])

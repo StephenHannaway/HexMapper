@@ -17,7 +17,7 @@ class MapStore:
             "CREATE TABLE IF NOT EXISTS hexes ("
             "q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
             "note TEXT, note_author TEXT, explored INTEGER DEFAULT 1, "
-            "PRIMARY KEY (q, r))"
+            "label TEXT, PRIMARY KEY (q, r))"
         )
         cols = {row[1] for row in self.db.execute("PRAGMA table_info(hexes)")}
         if "note" not in cols:
@@ -26,6 +26,9 @@ class MapStore:
             self.db.commit()
         if "explored" not in cols:
             self.db.execute("ALTER TABLE hexes ADD COLUMN explored INTEGER DEFAULT 1")
+            self.db.commit()
+        if "label" not in cols:
+            self.db.execute("ALTER TABLE hexes ADD COLUMN label TEXT")
             self.db.commit()
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS ops ("
@@ -50,7 +53,7 @@ class MapStore:
 
     def snapshot(self) -> dict[str, Any]:
         rows = self.db.execute(
-            "SELECT q, r, terrain, icon, note, note_author, explored FROM hexes"
+            "SELECT q, r, terrain, icon, note, note_author, explored, label FROM hexes"
         ).fetchall()
         return {
             "version": self.version,
@@ -66,8 +69,9 @@ class MapStore:
                     "note": note,
                     "note_author": note_author,
                     "explored": explored,
+                    "label": label,
                 }
-                for q, r, terrain, icon, note, note_author, explored in rows
+                for q, r, terrain, icon, note, note_author, explored, label in rows
             ],
         }
 
@@ -101,6 +105,17 @@ class MapStore:
             raise ValueError(f"no hex at {q},{r}")
         self.version += 1
         return {"note": text, "note_author": author if text else None}
+
+    def set_label(self, q: int, r: int, label: str) -> str | None:
+        text = label.strip() or None
+        cur = self.db.execute(
+            "UPDATE hexes SET label = ? WHERE q = ? AND r = ?", (text, q, r)
+        )
+        self.db.commit()
+        if not cur.rowcount:
+            raise ValueError(f"no hex at {q},{r}")
+        self.version += 1
+        return text
 
     def remove_hex(self, q: int, r: int) -> None:
         self.db.execute("DELETE FROM hexes WHERE q = ? AND r = ?", (q, r))
@@ -238,8 +253,9 @@ class MapStore:
     def import_hexmap(self, data: dict[str, Any]) -> None:
         self.db.execute("DELETE FROM hexes")
         self.db.executemany(
-            "INSERT OR REPLACE INTO hexes (q, r, terrain, icon, note, note_author) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO hexes "
+            "(q, r, terrain, icon, note, note_author, label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     h["q"],
@@ -248,6 +264,7 @@ class MapStore:
                     h.get("icon_name"),
                     h.get("note"),
                     h.get("note_author"),
+                    h.get("label"),
                 )
                 for h in data.get("hexes", [])
                 if h["terrain"] in TERRAINS
@@ -271,9 +288,9 @@ class MapStore:
 
     def export_hexmap(self) -> dict[str, Any]:
         rows = self.db.execute(
-            "SELECT q, r, terrain, icon, note, note_author FROM hexes"
+            "SELECT q, r, terrain, icon, note, note_author, label FROM hexes"
         ).fetchall()
-        # note fields and the features key are extras the desktop app ignores
+        # note/label fields and the features key are extras the desktop app ignores
         return {
             "features": self.features(),
             "hexes": [
@@ -284,7 +301,8 @@ class MapStore:
                     "icon_name": icon,
                     "note": note,
                     "note_author": note_author,
+                    "label": label,
                 }
-                for q, r, terrain, icon, note, note_author in rows
+                for q, r, terrain, icon, note, note_author, label in rows
             ],
         }

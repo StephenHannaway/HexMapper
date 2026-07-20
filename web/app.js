@@ -176,6 +176,16 @@ function draw() {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
+    if (cell.label && size >= 11) {
+      const fontPx = Math.max(9, Math.min(16, size * 0.42));
+      ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#000000cc";
+      ctx.strokeText(cell.label, sx, sy + size * 0.92);
+      ctx.fillStyle = "#f2ead9";
+      ctx.fillText(cell.label, sx, sy + size * 0.92);
+    }
     if (fogged) {
       // DM view of a hidden hex: rendered but dimmed
       traceHex(sx, sy, size);
@@ -379,7 +389,7 @@ function addPing(q, r) {
 
 function applyHex(h) {
   state.hexes.set(key(h.q, h.r), {
-    icon: null, note: null, note_author: null, explored: 1, ...h,
+    icon: null, note: null, note_author: null, explored: 1, label: null, ...h,
   });
 }
 
@@ -424,6 +434,7 @@ function connect() {
           note: existing ? existing.note : null,
           note_author: existing ? existing.note_author : null,
           explored: 1,
+          label: existing ? existing.label : null,
         });
       } else if (msg.op === "set_note") {
         const cell = state.hexes.get(key(msg.q, msg.r));
@@ -436,6 +447,12 @@ function connect() {
         state.features.set(msg.feature.id, msg.feature);
       } else if (msg.op === "remove_feature") {
         state.features.delete(msg.id);
+      } else if (msg.op === "set_label") {
+        const cell = state.hexes.get(key(msg.q, msg.r));
+        if (cell) {
+          cell.label = msg.label;
+          refreshNotePanel(msg.q, msg.r);
+        }
       } else if (msg.op === "set_explored") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) cell.explored = msg.explored ? 1 : 0;
@@ -460,7 +477,7 @@ function connect() {
         op: msg.op,
         detail: {
           q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon,
-          explored: msg.explored, enabled: msg.enabled,
+          explored: msg.explored, enabled: msg.enabled, label: msg.label,
           kind: msg.feature ? msg.feature.kind : undefined,
         },
       });
@@ -570,6 +587,7 @@ function editAt(clientX, clientY, ev) {
       note: cell ? cell.note : null,
       note_author: cell ? cell.note_author : null,
       explored: 1,
+      label: cell ? cell.label : null,
     });
     send({ op: "set_hex", q, r, terrain: state.terrain });
   }
@@ -804,6 +822,7 @@ function setTool(tool) {
 let noteHex = null; // {q, r} of the hex open in the note panel
 const notePanel = document.getElementById("notePanel");
 const noteText = document.getElementById("noteText");
+const noteLabel = document.getElementById("noteLabel");
 
 function openNotePanel(q, r) {
   const cell = state.hexes.get(key(q, r));
@@ -814,6 +833,7 @@ function openNotePanel(q, r) {
   noteHex = { q, r };
   document.getElementById("noteTitle").textContent = `Note — hex ${q},${r}`;
   noteText.value = cell.note || "";
+  noteLabel.value = cell.label || "";
   updateNoteMeta(cell);
   notePanel.hidden = false;
   noteText.focus();
@@ -831,6 +851,7 @@ function refreshNotePanel(q, r) {
   if (!cell) return;
   updateNoteMeta(cell);
   if (document.activeElement !== noteText) noteText.value = cell.note || "";
+  if (document.activeElement !== noteLabel) noteLabel.value = cell.label || "";
 }
 
 function closeNotePanel() {
@@ -849,6 +870,11 @@ document.getElementById("noteSave").onclick = () => {
   cell.note_author = note ? playerName : null;
   updateNoteMeta(cell);
   send({ op: "set_note", q: noteHex.q, r: noteHex.r, note });
+  const label = noteLabel.value.trim();
+  if ((cell.label || "") !== label) {
+    cell.label = label || null;
+    send({ op: "set_label", q: noteHex.q, r: noteHex.r, label });
+  }
   toast(note ? "Note saved" : "Note removed");
   draw();
 };
@@ -900,6 +926,7 @@ function opText(e) {
     case "set_icon": return d.icon ? `placed ${d.icon} at${at}` : `cleared the icon at${at}`;
     case "remove_hex": return `removed hex${at}`;
     case "set_note": return `wrote a note on${at}`;
+    case "set_label": return d.label ? `named${at} "${d.label}"` : `cleared the name of${at}`;
     case "set_party": return `moved the party to${at}`;
     case "set_explored": return `${d.explored ? "revealed" : "hid"} hex${at}`;
     case "set_fog": return `turned fog of war ${d.enabled ? "on" : "off"}`;

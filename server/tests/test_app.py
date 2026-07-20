@@ -351,3 +351,14 @@ def test_feature_ops_are_logged(client: TestClient) -> None:
     entries = client.get("/api/history", headers=PLAYER).json()["ops"]
     assert entries[0]["op"] == "add_feature"
     assert entries[0]["detail"]["kind"] == "road"
+
+
+def test_set_label_broadcasts(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "CITY")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_label", "q": 0, "r": 0, "label": "Akaford"})
+        msg = ws.receive_json()
+        assert msg["op"] == "set_label"
+        assert msg["label"] == "Akaford"
+    assert app_module.store.snapshot()["hexes"][0]["label"] == "Akaford"
