@@ -5,6 +5,20 @@ const canvas = document.getElementById("canvas");
 let ctx = canvas.getContext("2d"); // swapped temporarily during PNG export
 let exporting = false;
 
+const prefs = JSON.parse(localStorage.getItem("hexPrefs") || "{}");
+function savePrefs() {
+  localStorage.setItem(
+    "hexPrefs",
+    JSON.stringify({
+      lightBg: state.lightBg,
+      grid: state.grid,
+      gridStrength: state.gridStrength,
+      minimapOn: state.minimapOn,
+      daysPerHex: state.daysPerHex,
+    })
+  );
+}
+
 const state = {
   hexes: new Map(), // "q,r" -> {q, r, terrain, icon}
   version: 0,
@@ -25,7 +39,25 @@ const state = {
   features: new Map(), // id -> {id, kind, path, created_by}
   featureCosts: null,
   draft: null, // {kind, waypoints: [[q,r],...], preview: [[q,r],...]}
+  canUndo: false,
+  measure: null, // {a: [q,r], b: [q,r]|null, path: [[q,r]...], dist, days, roadDays}
+  // display preferences (persisted)
+  lightBg: prefs.lightBg ?? false,
+  grid: prefs.grid ?? true,
+  gridStrength: prefs.gridStrength ?? 35,
+  minimapOn: prefs.minimapOn ?? true,
+  daysPerHex: prefs.daysPerHex ?? 6,
 };
+
+function bgColor() {
+  return state.lightBg ? "#efe9dc" : "#1e1e1e";
+}
+function gridColor() {
+  const a = Math.round((state.gridStrength / 100) * 200)
+    .toString(16)
+    .padStart(2, "0");
+  return (state.lightBg ? "#5a5142" : "#8a8a8a") + a;
+}
 
 const key = (q, r) => `${q},${r}`;
 
@@ -136,9 +168,16 @@ function drawFeaturePaths(kind) {
   }
 }
 
+function outlineHex() {
+  if (!state.grid) return;
+  ctx.strokeStyle = gridColor();
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
 function draw() {
   const w = ctx.canvas.width, h = ctx.canvas.height;
-  ctx.fillStyle = "#1e1e1e";
+  ctx.fillStyle = bgColor();
   ctx.fillRect(0, 0, w, h);
   const size = HEX_SIZE * state.scale;
   for (const cell of state.hexes.values()) {
@@ -149,18 +188,14 @@ function draw() {
     const fogged = state.fog && !cell.explored;
     traceHex(sx, sy, size);
     if (fogged && state.role !== "dm") {
-      ctx.fillStyle = "#26262c";
+      ctx.fillStyle = state.lightBg ? "#cfc8b8" : "#26262c";
       ctx.fill();
-      ctx.strokeStyle = "#323232";
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      outlineHex();
       continue;
     }
     ctx.fillStyle = state.terrains[cell.terrain] || "#ff00ff";
     ctx.fill();
-    ctx.strokeStyle = "#323232";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    outlineHex();
     if (cell.icon) {
       const img = state.iconImages.get(cell.icon);
       if (img && img.complete) {
@@ -258,6 +293,42 @@ function draw() {
     ctx.arc(sx, sy, size * 0.6, 0, Math.PI * 2);
     ctx.strokeStyle = "#ffd54a";
     ctx.lineWidth = Math.max(2, size * 0.12);
+    ctx.stroke();
+  }
+  if (!exporting && state.measure) drawMeasure(size);
+  if (!exporting) drawMinimap();
+}
+
+function drawMeasure(size) {
+  const m = state.measure;
+  const path = m.path && m.path.length ? m.path : [m.a, m.b].filter(Boolean);
+  if (path.length >= 2) {
+    const pts = path.map(([q, r]) => {
+      const [wx, wy] = hexToPixel(q, r);
+      return [wx * state.scale + state.offsetX, wy * state.scale + state.offsetY];
+    });
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.strokeStyle = "#000000aa";
+    ctx.lineWidth = Math.max(3, size * 0.18);
+    ctx.lineCap = ctx.lineJoin = "round";
+    ctx.stroke();
+    ctx.strokeStyle = "#7ec8ff";
+    ctx.lineWidth = Math.max(1.5, size * 0.09);
+    ctx.stroke();
+  }
+  for (const end of [m.a, m.b]) {
+    if (!end) continue;
+    const [wx, wy] = hexToPixel(end[0], end[1]);
+    const sx = wx * state.scale + state.offsetX;
+    const sy = wy * state.scale + state.offsetY;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = "#7ec8ff";
+    ctx.fill();
+    ctx.strokeStyle = "#000000aa";
+    ctx.lineWidth = 2;
     ctx.stroke();
   }
 }
@@ -391,7 +462,8 @@ function addPing(q, r) {
 
 function applyHex(h) {
   state.hexes.set(key(h.q, h.r), {
-    icon: null, note: null, note_author: null, explored: 1, label: null, ...h,
+    icon: null, note: null, note_author: null, explored: 1, label: null,
+    edited_by: null, ...h,
   });
 }
 
@@ -418,9 +490,13 @@ function connect() {
       state.fog = !!msg.fog;
       state.features.clear();
       (msg.features || []).forEach((f) => state.features.set(f.id, f));
+      state.canUndo = !!msg.can_undo;
       updateFogBtn();
+      updateUndoBtn();
+      if (state.measure) computeMeasure();
       state.version = msg.version;
       if (firstLoad) fitView();
+      if (msg.action === "undo") toast(`Undid: ${msg.undo_label}`);
       if (msg.action) {
         addHistory({
           ts: Date.now() / 1000, player: msg.by || "someone", op: msg.action, detail: {},
@@ -428,6 +504,8 @@ function connect() {
       }
     } else if (msg.type === "op") {
       if (msg.version > state.version + 1) resync(); // missed a broadcast
+      state.canUndo = true;
+      updateUndoBtn();
       if (msg.op === "set_hex") {
         const existing = state.hexes.get(key(msg.q, msg.r));
         state.hexes.set(key(msg.q, msg.r), {
@@ -437,12 +515,14 @@ function connect() {
           note_author: existing ? existing.note_author : null,
           explored: 1,
           label: existing ? existing.label : null,
+          edited_by: msg.edited_by || null,
         });
       } else if (msg.op === "set_note") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) {
           cell.note = msg.note;
           cell.note_author = msg.note_author;
+          cell.edited_by = msg.edited_by || cell.edited_by;
           refreshNotePanel(msg.q, msg.r);
         }
       } else if (msg.op === "add_feature") {
@@ -453,6 +533,7 @@ function connect() {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) {
           cell.label = msg.label;
+          cell.edited_by = msg.edited_by || cell.edited_by;
           refreshNotePanel(msg.q, msg.r);
         }
       } else if (msg.op === "set_explored") {
@@ -466,7 +547,10 @@ function connect() {
         state.party = { q: msg.q, r: msg.r };
       } else if (msg.op === "set_icon") {
         const cell = state.hexes.get(key(msg.q, msg.r));
-        if (cell) cell.icon = msg.icon;
+        if (cell) {
+          cell.icon = msg.icon;
+          cell.edited_by = msg.edited_by || cell.edited_by;
+        }
       } else if (msg.op === "remove_hex") {
         state.hexes.delete(key(msg.q, msg.r));
       } else if (msg.op === "apply_hexes") {
@@ -491,6 +575,7 @@ function connect() {
       renderPresence(msg.users);
     } else if (msg.type === "error") {
       toast(msg.detail);
+      if (msg.resync) resync();
     }
     draw();
   };
@@ -514,13 +599,160 @@ async function resync() {
     state.fog = !!snap.fog;
     state.features.clear();
     (snap.features || []).forEach((f) => state.features.set(f.id, f));
+    state.canUndo = !!snap.can_undo;
     updateFogBtn();
+    updateUndoBtn();
     state.version = snap.version;
     draw();
   } finally {
     resyncing = false;
   }
 }
+
+// --- travel measure (client-only, roads speed you up) ---
+
+// movement cost to cross a hex on foot; water is effectively impassable
+const TRAVEL_COST = {
+  CITY: 0.6, FARM: 1, GRASSLAND: 1, PLAINS: 1, BEACH: 1.1, TUNDRA: 1.3,
+  FOREST: 1.5, WASTELAND: 1.5, DESERT: 1.7, SNOW: 1.8, HILLS: 2, JUNGLE: 2.2,
+  MARSH: 2.5, SWAMP: 2.5, MOUNTAIN: 3, VOLCANO: 4, LAKE: 12, OCEAN: 12, FOG: 1.4,
+};
+const TRAVEL_DEFAULT = 1.6;
+const ROAD_TRAVEL = 0.5; // a road hex costs this instead of its terrain
+
+function travelCost(q, r) {
+  const cell = state.hexes.get(key(q, r));
+  const onRoad = [...state.features.values()].some(
+    (f) => f.kind === "road" && f.path.some(([pq, pr]) => pq === q && pr === r)
+  );
+  if (onRoad) return ROAD_TRAVEL;
+  return cell ? (TRAVEL_COST[cell.terrain] ?? TRAVEL_DEFAULT) : TRAVEL_DEFAULT;
+}
+
+function travelAStar(start, goal, maxNodes = 4000) {
+  if (start[0] === goal[0] && start[1] === goal[1]) return { path: [start], cost: 0 };
+  const g = new Map([[key(...start), 0]]);
+  const came = new Map();
+  const open = [[hexDist(...start, ...goal), start]];
+  let explored = 0;
+  while (open.length) {
+    open.sort((a, b) => a[0] - b[0]);
+    const [, cur] = open.shift();
+    if (cur[0] === goal[0] && cur[1] === goal[1]) {
+      const path = [cur];
+      let k = key(...cur);
+      while (came.has(k)) {
+        path.unshift(came.get(k));
+        k = key(...came.get(k));
+      }
+      return { path, cost: g.get(key(...goal)) };
+    }
+    if (++explored > maxNodes) break;
+    const gCur = g.get(key(...cur));
+    for (const [dq, dr] of AXIAL_DIRS) {
+      const nxt = [cur[0] + dq, cur[1] + dr];
+      const t = gCur + travelCost(nxt[0], nxt[1]);
+      const nk = key(...nxt);
+      if (t < (g.get(nk) ?? Infinity)) {
+        g.set(nk, t);
+        came.set(nk, cur);
+        open.push([t + hexDist(...nxt, ...goal), nxt]);
+      }
+    }
+  }
+  return null;
+}
+
+const measureReadout = document.getElementById("measureReadout");
+
+function computeMeasure() {
+  const m = state.measure;
+  if (!m || !m.a || !m.b) {
+    if (measureReadout) measureReadout.innerHTML = "&nbsp;";
+    return;
+  }
+  const dist = hexDist(m.a[0], m.a[1], m.b[0], m.b[1]);
+  const per = Math.max(1, state.daysPerHex);
+  const days = Math.max(1, Math.ceil(dist / per));
+  const routed = travelAStar(m.a, m.b);
+  m.path = routed ? routed.path : [m.a, m.b];
+  const roadDays = routed ? Math.max(1, Math.ceil(routed.cost / per)) : days;
+  measureReadout.textContent =
+    `${dist} hex${dist === 1 ? "" : "es"} · ~${days} day${days === 1 ? "" : "s"}` +
+    (roadDays < days ? ` (${roadDays} via roads)` : "");
+}
+
+function clearMeasure() {
+  state.measure = null;
+  if (measureReadout) measureReadout.innerHTML = "&nbsp;";
+  draw();
+}
+
+// --- minimap (item 21) ---
+
+const minimap = document.getElementById("minimap");
+const mmCtx = minimap.getContext("2d");
+let mmMap = null; // {minX, minY, k, padX, padY} for click-to-jump
+
+function drawMinimap() {
+  if (!state.minimapOn || !state.hexes.size) {
+    minimap.classList.add("hidden");
+    return;
+  }
+  minimap.classList.remove("hidden");
+  const W = minimap.width, H = minimap.height;
+  mmCtx.clearRect(0, 0, W, H);
+  mmCtx.fillStyle = state.lightBg ? "#efe9dc" : "#16161a";
+  mmCtx.fillRect(0, 0, W, H);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const cell of state.hexes.values()) {
+    const [x, y] = hexToPixel(cell.q, cell.r);
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const spanX = maxX - minX + HEX_SIZE * 2, spanY = maxY - minY + HEX_SIZE * 2;
+  const pad = 6;
+  const k = Math.min((W - pad * 2) / spanX, (H - pad * 2) / spanY);
+  const padX = (W - spanX * k) / 2, padY = (H - spanY * k) / 2;
+  mmMap = { minX: minX - HEX_SIZE, minY: minY - HEX_SIZE, k, padX, padY };
+  const dot = Math.max(1.5, k * HEX_SIZE * 1.4);
+  const hideFog = state.fog && state.role !== "dm";
+  for (const cell of state.hexes.values()) {
+    if (hideFog && !cell.explored) continue;
+    const [x, y] = hexToPixel(cell.q, cell.r);
+    const mx = (x - mmMap.minX) * k + padX;
+    const my = (y - mmMap.minY) * k + padY;
+    mmCtx.fillStyle = state.terrains[cell.terrain] || "#ff00ff";
+    mmCtx.fillRect(mx - dot / 2, my - dot / 2, dot, dot);
+  }
+  // viewport rectangle: screen corners mapped back to world, then to minimap
+  const c0 = screenToWorld(0, 0);
+  const c1 = screenToWorld(canvas.width, canvas.height);
+  const vx = (c0[0] - mmMap.minX) * k + padX, vy = (c0[1] - mmMap.minY) * k + padY;
+  const vw = (c1[0] - c0[0]) * k, vh = (c1[1] - c0[1]) * k;
+  mmCtx.strokeStyle = "#7ec8ff";
+  mmCtx.lineWidth = 1.5;
+  mmCtx.strokeRect(vx, vy, vw, vh);
+  if (state.party) {
+    const [px, py] = hexToPixel(state.party.q, state.party.r);
+    mmCtx.beginPath();
+    mmCtx.arc((px - mmMap.minX) * k + padX, (py - mmMap.minY) * k + padY, 2.5, 0, 7);
+    mmCtx.fillStyle = "#ffd54a";
+    mmCtx.fill();
+  }
+}
+
+minimap.addEventListener("click", (e) => {
+  if (!mmMap) return;
+  const rect = minimap.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (minimap.width / rect.width);
+  const my = (e.clientY - rect.top) * (minimap.height / rect.height);
+  const wx = (mx - mmMap.padX) / mmMap.k + mmMap.minX;
+  const wy = (my - mmMap.padY) / mmMap.k + mmMap.minY;
+  state.offsetX = canvas.width / 2 - wx * state.scale;
+  state.offsetY = canvas.height / 2 - wy * state.scale;
+  draw();
+});
 
 // --- editing ---
 
@@ -533,6 +765,18 @@ function editAt(clientX, clientY, ev) {
   const [q, r] = pixelToHex(wx, wy);
   const k = key(q, r);
   const cell = state.hexes.get(k);
+
+  if (state.tool === "measure") {
+    if (!state.measure || state.measure.b) {
+      state.measure = { a: [q, r], b: null, path: null };
+      toast("Click the destination hex");
+    } else {
+      state.measure.b = [q, r];
+      computeMeasure();
+    }
+    draw();
+    return;
+  }
 
   if (state.tool === "road" || state.tool === "river") {
     if (ev && ev.shiftKey) {
@@ -659,7 +903,11 @@ canvas.addEventListener("pointermove", (e) => {
     (e.clientY - rect.top) * devicePixelRatio
   );
   const [hq, hr] = pixelToHex(hwx, hwy);
-  coordsEl.textContent = `hex ${hq},${hr}`;
+  const hcell = state.hexes.get(key(hq, hr));
+  const hidden = state.fog && state.role !== "dm" && hcell && !hcell.explored;
+  coordsEl.textContent =
+    `hex ${hq},${hr}` +
+    (hcell && hcell.edited_by && !hidden ? ` · last: ${hcell.edited_by}` : "");
   if (state.draft && state.draft.waypoints.length) {
     const last = state.draft.waypoints[state.draft.waypoints.length - 1];
     state.draft.preview = jsAStar(last, [hq, hr], state.draft.kind) || [];
@@ -727,7 +975,7 @@ function zoomAtCenter(factor) {
   draw();
 }
 
-const TOOL_KEYS = { p: "pan", b: "paint", i: "icon", n: "note", m: "party", o: "road", v: "river", r: "remove" };
+const TOOL_KEYS = { p: "pan", b: "paint", i: "icon", n: "note", m: "party", t: "measure", o: "road", v: "river", r: "remove" };
 const helpOverlay = document.getElementById("helpOverlay");
 helpOverlay.onclick = () => { helpOverlay.hidden = true; };
 
@@ -736,6 +984,12 @@ window.addEventListener("keydown", (e) => {
     if (!helpOverlay.hidden) { helpOverlay.hidden = true; return; }
     if (cancelDraft()) return;
     if (!notePanel.hidden) { closeNotePanel(); return; }
+    if (state.measure) { clearMeasure(); return; }
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+    e.preventDefault();
+    requestUndo();
+    return;
   }
   if (isTyping()) return;
   if (e.key === "Enter" && finishDraft()) return;
@@ -813,10 +1067,11 @@ canvas.addEventListener("wheel", (e) => {
 
 function setTool(tool) {
   state.tool = tool;
-  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["roadBtn", "road"], ["riverBtn", "river"], ["revealBtn", "reveal"], ["removeBtn", "remove"]]) {
+  for (const [id, t] of [["panBtn", "pan"], ["paintBtn", "paint"], ["iconBtn", "icon"], ["noteBtn", "note"], ["partyBtn", "party"], ["measureBtn", "measure"], ["roadBtn", "road"], ["riverBtn", "river"], ["revealBtn", "reveal"], ["removeBtn", "remove"]]) {
     document.getElementById(id).classList.toggle("active", t === tool);
   }
   if (state.draft && state.draft.kind !== tool) cancelDraft();
+  if (tool !== "measure" && state.measure) clearMeasure();
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
 }
 
@@ -975,6 +1230,8 @@ setInterval(renderHistory, 60000);
 
 function setStatus(text) {
   document.getElementById("status").textContent = text;
+  const dot = document.getElementById("statusDot");
+  if (dot) dot.style.background = text === "connected" ? "#6dd36d" : "#d1a23a";
 }
 
 let toastTimer;
@@ -991,14 +1248,52 @@ document.getElementById("centerBtn").onclick = fitView;
 document.getElementById("paintBtn").onclick = () => setTool("paint");
 document.getElementById("iconBtn").onclick = () => setTool("icon");
 document.getElementById("partyBtn").onclick = () => setTool("party");
+document.getElementById("measureBtn").onclick = () => setTool("measure");
 document.getElementById("roadBtn").onclick = () => setTool("road");
 document.getElementById("riverBtn").onclick = () => setTool("river");
 document.getElementById("revealBtn").onclick = () => setTool("reveal");
 const fogBtn = document.getElementById("fogBtn");
 function updateFogBtn() {
-  fogBtn.textContent = `Fog of war: ${state.fog ? "on" : "off"}`;
+  fogBtn.textContent = `Fog: ${state.fog ? "on" : "off"}`;
 }
 fogBtn.onclick = () => send({ op: "set_fog", enabled: !state.fog });
+
+// --- undo (DM-only) ---
+const undoBtn = document.getElementById("undoBtn");
+function updateUndoBtn() {
+  undoBtn.disabled = !(state.role === "dm" && state.canUndo);
+}
+function requestUndo() {
+  if (state.role !== "dm") return;
+  if (!state.canUndo) {
+    toast("Nothing to undo");
+    return;
+  }
+  send({ op: "undo" });
+}
+undoBtn.onclick = requestUndo;
+
+// --- display preferences ---
+const themeToggle = document.getElementById("themeToggle");
+const gridToggle = document.getElementById("gridToggle");
+const gridStrength = document.getElementById("gridStrength");
+const minimapToggle = document.getElementById("minimapToggle");
+const daysPerHex = document.getElementById("daysPerHex");
+themeToggle.checked = state.lightBg;
+gridToggle.checked = state.grid;
+gridStrength.value = state.gridStrength;
+minimapToggle.checked = state.minimapOn;
+daysPerHex.value = state.daysPerHex;
+themeToggle.onchange = () => { state.lightBg = themeToggle.checked; savePrefs(); draw(); };
+gridToggle.onchange = () => { state.grid = gridToggle.checked; savePrefs(); draw(); };
+gridStrength.oninput = () => { state.gridStrength = +gridStrength.value; savePrefs(); draw(); };
+minimapToggle.onchange = () => { state.minimapOn = minimapToggle.checked; savePrefs(); draw(); };
+daysPerHex.onchange = () => {
+  state.daysPerHex = Math.max(1, +daysPerHex.value || 6);
+  daysPerHex.value = state.daysPerHex;
+  savePrefs();
+  computeMeasure();
+};
 document.getElementById("removeBtn").onclick = () => setTool("remove");
 document.getElementById("layerBtn").onclick = () =>
   send({ op: "add_layer", terrain: state.terrain });

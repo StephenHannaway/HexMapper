@@ -362,3 +362,58 @@ def test_set_label_broadcasts(client: TestClient) -> None:
         assert msg["op"] == "set_label"
         assert msg["label"] == "Akaford"
     assert app_module.store.snapshot()["hexes"][0]["label"] == "Akaford"
+
+
+def test_player_cannot_undo(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOREST")
+    app_module.store.set_hex(0, 0, "DESERT", "someone")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "undo"})
+        assert ws.receive_json()["type"] == "error"
+    assert app_module.store.snapshot()["hexes"][0]["terrain"] == "DESERT"
+
+
+def test_dm_undo_reverts_last_edit(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "set_hex", "q": 0, "r": 0, "terrain": "FOREST"})
+        assert ws.receive_json()["op"] == "set_hex"
+        ws.send_json({"op": "set_hex", "q": 0, "r": 0, "terrain": "DESERT"})
+        assert ws.receive_json()["op"] == "set_hex"
+        ws.send_json({"op": "undo"})
+        msg = ws.receive_json()
+        assert msg["type"] == "snapshot"
+        assert msg["action"] == "undo"
+    assert app_module.store.snapshot()["hexes"][0]["terrain"] == "FOREST"
+
+
+def test_snapshot_reports_can_undo(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["can_undo"] is False
+        ws.send_json({"op": "set_hex", "q": 0, "r": 0, "terrain": "FOREST"})
+        assert ws.receive_json()["op"] == "set_hex"
+    assert app_module.store.can_undo() is True
+
+
+def test_edited_by_in_broadcast(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "hello", "name": "Mara"})
+        assert ws.receive_json()["type"] == "presence"
+        ws.send_json({"op": "set_hex", "q": 4, "r": 4, "terrain": "FOREST"})
+        msg = ws.receive_json()
+        assert msg["edited_by"] == "Mara"
+
+
+def test_rate_limit_drops_flood_and_asks_resync(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        saw_resync = False
+        for i in range(app_module.RATE_BURST + 20):
+            ws.send_json({"op": "set_hex", "q": i, "r": 0, "terrain": "FOREST"})
+            msg = ws.receive_json()
+            if msg["type"] == "error" and msg.get("resync"):
+                saw_resync = True
+                break
+        assert saw_resync

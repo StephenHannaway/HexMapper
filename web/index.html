@@ -10,21 +10,35 @@
   body { display: flex; background: #1e1e1e; color: #e8e8ec; }
   #canvas { flex: 1; min-width: 0; width: 0; display: block; cursor: crosshair; touch-action: none; }
   #sidebar {
-    width: 232px; min-width: 232px; background: #28282d; padding: 14px;
-    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+    width: 240px; min-width: 240px; background: #26262b; padding: 14px 12px;
+    display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
     border-left: 1px solid #3a3a42;
   }
+  #titleRow { display: flex; align-items: center; justify-content: space-between; }
   #sidebar h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.4px; }
-  #sidebar h2 { font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 1px; color: #9a9aa6; margin-top: 6px; }
+  #sidebar h2 { font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: #8b8b98; margin-top: 8px;
+    border-bottom: 1px solid #34343c; padding-bottom: 3px; }
   select, button, input {
-    width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #45454f;
+    padding: 8px 10px; border-radius: 6px; border: 1px solid #45454f;
     background: #34343c; color: #e8e8ec; font-size: 13px; cursor: pointer;
   }
+  button { width: 100%; }
   button:hover { background: #40404a; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button:disabled:hover { background: #34343c; }
   button.active { background: #7a3030; border-color: #a04545; }
-  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px;
-    margin-right: 6px; vertical-align: -1px; border: 1px solid #00000055; }
+  /* compact tool + action grids to tame the vertical sprawl */
+  #toolGrid, #mapGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  #toolGrid button, #mapGrid button {
+    padding: 8px 4px; font-size: 12px; line-height: 1.15; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  #toolGrid button .kb, #mapGrid button .kb {
+    font-size: 9px; color: #8f8fa0; font-weight: 600;
+  }
+  button.active .kb { color: #e8c0c0; }
+  .span2 { grid-column: 1 / -1; }
   #terrainGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   #terrainGrid button { padding: 0; height: 26px; border-radius: 4px; }
   #terrainGrid button.selected { outline: 2px solid #fff; }
@@ -32,14 +46,28 @@
   #iconGrid button { padding: 4px; height: 44px; border-radius: 4px; }
   #iconGrid button img { width: 100%; height: 100%; object-fit: contain; display: block; }
   #iconGrid button.selected { outline: 2px solid #fff; }
+  .field { display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; font-size: 12px; color: #b8b8c4; }
+  .field input[type="number"], .field select { width: 84px; padding: 5px 7px; font-size: 12px; }
+  .field input[type="range"] { width: 96px; }
+  .field input[type="checkbox"] { width: auto; cursor: pointer; }
   #presence { font-size: 12px; color: #b8b8c4; line-height: 1.6; }
   #history { font-size: 11px; color: #9a9aa6; line-height: 1.6; }
   #history b { color: #d0d0d8; font-weight: 600; }
   #presence .dot { color: #6dd36d; margin-right: 5px; }
-  #hint { font-size: 11px; color: #6f6f7a; line-height: 1.5; margin-top: auto; }
-  #status { font-size: 11px; color: #8a8a96; }
-  #coords { font-size: 11px; color: #6f6f7a; }
-  #gotoInput { padding: 5px 8px; font-size: 12px; cursor: text; }
+  #hint { font-size: 11px; color: #6f6f7a; line-height: 1.5; margin-top: 6px; }
+  #statusRow { display: flex; align-items: center; gap: 6px; font-size: 11px;
+    color: #8a8a96; margin-top: 4px; }
+  #statusDot { width: 8px; height: 8px; border-radius: 50%; background: #d1a23a;
+    flex: none; }
+  #coords { font-size: 11px; color: #6f6f7a; min-height: 15px; }
+  #measureReadout { font-size: 12px; color: #7ec8ff; min-height: 15px; }
+  #gotoInput { padding: 5px 8px; font-size: 12px; cursor: text; width: 100%; }
+  #nameInput { width: 100%; }
+  #minimap { position: fixed; right: 252px; bottom: 12px; width: 168px; height: 128px;
+    background: #16161acc; border: 1px solid #3a3a42; border-radius: 6px;
+    cursor: pointer; display: block; }
+  #minimap.hidden { display: none; }
   #toast { position: fixed; left: 12px; bottom: 12px; background: #34343ccc;
     padding: 6px 12px; border-radius: 6px; font-size: 12px; opacity: 0;
     transition: opacity .3s; pointer-events: none; }
@@ -64,59 +92,88 @@
   kbd { background: #34343c; border: 1px solid #45454f; border-bottom-width: 2px;
     border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit; }
   @media (pointer: coarse) {
-    select, button, input { padding: 12px 10px; font-size: 15px; }
+    select, button, input { padding: 11px 10px; font-size: 15px; }
+    #toolGrid button, #mapGrid button { padding: 11px 4px; font-size: 13px; }
     #terrainGrid button { height: 36px; padding: 0; }
     #iconGrid button { height: 56px; padding: 5px; }
+    #minimap { width: 132px; height: 100px; right: 12px; }
   }
 </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
+  <canvas id="minimap" width="168" height="128"></canvas>
   <div id="sidebar">
-    <h1>Shared World Map</h1>
+    <div id="titleRow"><h1>Shared World Map</h1></div>
+
     <h2>Terrain</h2>
     <div id="terrainGrid"></div>
+
     <h2>Icon</h2>
     <div id="iconGrid"></div>
+
     <h2>Tools</h2>
-    <button id="panBtn">Pan / move</button>
-    <button id="paintBtn" class="active">Paint terrain</button>
-    <button id="iconBtn">Place icon</button>
-    <button id="noteBtn">Notes</button>
-    <button id="partyBtn">Move party</button>
-    <button id="roadBtn">Road</button>
-    <button id="riverBtn">River</button>
-    <button id="revealBtn" class="dm-only">Reveal / hide</button>
-    <button id="fogBtn" class="dm-only">Fog of war: off</button>
-    <button id="removeBtn">Remove hex</button>
-    <button id="layerBtn">Add layer (ring)</button>
-    <button id="centerBtn">Centre map</button>
-    <button id="exportBtn">Export .hexmap</button>
-    <button id="exportPngBtn">Export PNG</button>
-    <button id="importBtn" class="dm-only">Import .hexmap</button>
+    <div id="toolGrid">
+      <button id="panBtn">Pan<span class="kb">P</span></button>
+      <button id="paintBtn" class="active">Paint<span class="kb">B</span></button>
+      <button id="iconBtn">Icon<span class="kb">I</span></button>
+      <button id="noteBtn">Notes<span class="kb">N</span></button>
+      <button id="partyBtn">Party<span class="kb">M</span></button>
+      <button id="measureBtn">Measure<span class="kb">T</span></button>
+      <button id="roadBtn">Road<span class="kb">O</span></button>
+      <button id="riverBtn">River<span class="kb">V</span></button>
+      <button id="revealBtn" class="dm-only">Reveal<span class="kb">—</span></button>
+      <button id="removeBtn">Remove<span class="kb">R</span></button>
+    </div>
+
+    <h2>Map</h2>
+    <div id="mapGrid">
+      <button id="centerBtn">Centre<span class="kb">C</span></button>
+      <button id="layerBtn">Add ring<span class="kb">&nbsp;</span></button>
+      <button id="exportBtn">Export<span class="kb">.hexmap</span></button>
+      <button id="exportPngBtn">Export<span class="kb">PNG</span></button>
+      <button id="undoBtn" class="dm-only" disabled>Undo<span class="kb">last edit</span></button>
+      <button id="fogBtn" class="dm-only">Fog: off<span class="kb">&nbsp;</span></button>
+      <button id="importBtn" class="dm-only">Import<span class="kb">.hexmap</span></button>
+      <button id="clearBtn" class="dm-only">Clear all<span class="kb">&nbsp;</span></button>
+    </div>
     <input id="importInput" type="file" accept=".hexmap,.hexmap2,application/json" hidden>
-    <button id="clearBtn" class="dm-only">Clear all</button>
-    <h2>Your name</h2>
+
+    <h2>Display</h2>
+    <label class="field">Light background<input id="themeToggle" type="checkbox"></label>
+    <label class="field">Grid lines<input id="gridToggle" type="checkbox" checked></label>
+    <label class="field">Grid strength<input id="gridStrength" type="range" min="0" max="100" value="35"></label>
+    <label class="field">Minimap<input id="minimapToggle" type="checkbox" checked></label>
+    <label class="field">Travel hexes/day<input id="daysPerHex" type="number" min="1" max="99" value="6"></label>
+
+    <h2>You</h2>
     <input id="nameInput" type="text" maxlength="32">
+
     <h2>Party online</h2>
     <div id="presence">…</div>
+
     <h2>Recent changes</h2>
     <div id="history">…</div>
-    <div id="hint">move: arrows / WASD / space-drag / right-drag<br>zoom: wheel, pinch or +/−<br>press ? for all shortcuts</div>
+
+    <div id="hint">move: arrows / WASD / space-drag<br>zoom: wheel, pinch or +/−<br>press ? for all shortcuts</div>
     <div id="coords">&nbsp;</div>
+    <div id="measureReadout">&nbsp;</div>
     <input id="gotoInput" type="text" placeholder="go to q,r">
-    <div id="status">connecting…</div>
+    <div id="statusRow"><span id="statusDot"></span><span id="status">connecting…</span></div>
   </div>
+
   <div id="toast"></div>
   <div id="helpOverlay" hidden>
     <h3>Controls</h3>
-    <div class="helpRow"><kbd>P</kbd><kbd>B</kbd><kbd>I</kbd><kbd>N</kbd><kbd>M</kbd><kbd>R</kbd><span>pan · paint · icon · notes · move party · remove</span></div>
+    <div class="helpRow"><kbd>P</kbd><kbd>B</kbd><kbd>I</kbd><kbd>N</kbd><kbd>M</kbd><kbd>T</kbd><kbd>R</kbd><span>pan · paint · icon · notes · party · measure · remove</span></div>
     <div class="helpRow"><kbd>C</kbd><span>centre / fit map</span></div>
     <div class="helpRow"><kbd>←↑↓→</kbd><kbd>WASD</kbd><span>pan the map</span></div>
     <div class="helpRow"><kbd>space</kbd>+drag, right-drag<span>pan with the mouse</span></div>
     <div class="helpRow"><kbd>wheel</kbd><kbd>pinch</kbd><kbd>+</kbd><kbd>−</kbd><span>zoom</span></div>
     <div class="helpRow">double-click<span>ping a hex for everyone</span></div>
     <div class="helpRow"><kbd>O</kbd><kbd>V</kbd><span>road / river: click waypoints, Enter builds, Shift-click removes</span></div>
+    <div class="helpRow"><kbd>T</kbd><span>measure: click start then end hex</span></div>
+    <div class="helpRow"><kbd>Ctrl</kbd>+<kbd>Z</kbd><span>undo last edit (DM)</span></div>
     <div class="helpRow"><kbd>Esc</kbd><span>close panels / cancel a draft</span></div>
     <div class="helpRow"><kbd>?</kbd><span>toggle this help</span></div>
   </div>

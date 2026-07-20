@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         return
     await ws.accept()
     hub.clients[ws] = "anonymous"
+    limiter = RateLimiter(RATE_BURST, RATE_PER_SEC)
     try:
         async with lock:
             await ws.send_text(json.dumps({"type": "snapshot", **store.snapshot()}))
@@ -178,6 +180,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
             msg = json.loads(await ws.receive_text())
             op = msg.get("op")
             author = hub.clients.get(ws, "anonymous")
+            if not limiter.allow():
+                if op != "cursor":
+                    # tell the client to resnapshot so a dropped edit can't diverge
+                    await ws.send_text(
+                        json.dumps(
+                            {"type": "error", "detail": "Slow down", "resync": True}
+                        )
+                    )
+                continue
             if op == "cursor":
                 # ephemeral hover position: no lock, no version, no log
                 try:
@@ -229,7 +240,30 @@ async def ws_endpoint(ws: WebSocket) -> None:
         await hub.broadcast({"type": "presence", "users": hub.names()})
 
 
-DM_OPS = {"clear_all", "set_explored", "set_fog"}
+DM_OPS = {"clear_all", "set_explored", "set_fog", "undo"}
+
+# Per-connection flood guard: allow a short burst, then a steady rate.
+RATE_BURST = 40
+RATE_PER_SEC = 25.0
+
+
+class RateLimiter:
+    def __init__(self, burst: int, per_sec: float) -> None:
+        self.capacity = float(burst)
+        self.per_sec = per_sec
+        self.tokens = float(burst)
+        self.updated = time.monotonic()
+
+    def allow(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(
+            self.capacity, self.tokens + (now - self.updated) * self.per_sec
+        )
+        self.updated = now
+        if self.tokens < 1.0:
+            return False
+        self.tokens -= 1.0
+        return True
 
 
 def plan_feature_path(
@@ -265,7 +299,7 @@ def apply_op(
         return {"type": "ping", "q": int(msg["q"]), "r": int(msg["r"]), "by": author}
     if op == "set_hex":
         q, r, terrain = int(msg["q"]), int(msg["r"]), str(msg["terrain"])
-        store.set_hex(q, r, terrain)
+        store.set_hex(q, r, terrain, author)
         return {
             "type": "op",
             "op": "set_hex",
@@ -273,11 +307,12 @@ def apply_op(
             "q": q,
             "r": r,
             "terrain": terrain,
+            "edited_by": author,
         }
     if op == "set_icon":
         q, r = int(msg["q"]), int(msg["r"])
         icon = msg.get("icon")
-        store.set_icon(q, r, icon)
+        store.set_icon(q, r, icon, author)
         return {
             "type": "op",
             "op": "set_icon",
@@ -285,10 +320,11 @@ def apply_op(
             "q": q,
             "r": r,
             "icon": icon,
+            "edited_by": author,
         }
     if op == "remove_hex":
         q, r = int(msg["q"]), int(msg["r"])
-        store.remove_hex(q, r)
+        store.remove_hex(q, r, author)
         return {
             "type": "op",
             "op": "remove_hex",
@@ -306,12 +342,13 @@ def apply_op(
             "version": store.version,
             "q": q,
             "r": r,
+            "edited_by": author,
             **result,
         }
     if op == "set_explored":
         q, r = int(msg["q"]), int(msg["r"])
         explored = bool(msg["explored"])
-        store.set_explored(q, r, explored)
+        store.set_explored(q, r, explored, author)
         return {
             "type": "op",
             "op": "set_explored",
@@ -322,7 +359,7 @@ def apply_op(
         }
     if op == "set_fog":
         enabled = bool(msg["enabled"])
-        store.set_fog(enabled)
+        store.set_fog(enabled, author)
         return {
             "type": "op",
             "op": "set_fog",
@@ -331,7 +368,7 @@ def apply_op(
         }
     if op == "set_label":
         q, r = int(msg["q"]), int(msg["r"])
-        label = store.set_label(q, r, str(msg.get("label") or "")[:40])
+        label = store.set_label(q, r, str(msg.get("label") or "")[:40], author)
         return {
             "type": "op",
             "op": "set_label",
@@ -339,10 +376,11 @@ def apply_op(
             "q": q,
             "r": r,
             "label": label,
+            "edited_by": author,
         }
     if op == "set_party":
         q, r = int(msg["q"]), int(msg["r"])
-        store.set_party(q, r)
+        store.set_party(q, r, author)
         return {
             "type": "op",
             "op": "set_party",
@@ -363,7 +401,7 @@ def apply_op(
         }
     if op == "remove_feature":
         fid = int(msg["id"])
-        store.remove_feature(fid)
+        store.remove_feature(fid, author)
         return {
             "type": "op",
             "op": "remove_feature",
@@ -371,7 +409,7 @@ def apply_op(
             "id": fid,
         }
     if op == "add_layer":
-        added = store.add_layer(str(msg["terrain"]))
+        added = store.add_layer(str(msg["terrain"]), author)
         return {
             "type": "op",
             "op": "apply_hexes",
@@ -379,8 +417,18 @@ def apply_op(
             "hexes": added,
         }
     if op == "clear_all":
-        store.clear_all()
+        store.clear_all(author)
         return {"type": "snapshot", "action": "clear_all", **store.snapshot()}
+    if op == "undo":
+        label = store.undo()
+        if label is None:
+            raise ValueError("nothing to undo")
+        return {
+            "type": "snapshot",
+            "action": "undo",
+            "undo_label": label,
+            **store.snapshot(),
+        }
     raise ValueError(f"unknown op {op!r}")
 
 

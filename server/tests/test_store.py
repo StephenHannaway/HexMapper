@@ -34,7 +34,7 @@ def test_add_layer_rejects_unknown_terrain(store: MapStore) -> None:
 
 
 def test_set_hex_and_snapshot(store: MapStore) -> None:
-    store.set_hex(2, -1, "DESERT")
+    store.set_hex(2, -1, "DESERT", "steph")
     snap = store.snapshot()
     assert {
         "q": 2,
@@ -45,6 +45,7 @@ def test_set_hex_and_snapshot(store: MapStore) -> None:
         "note_author": None,
         "explored": 1,
         "label": None,
+        "edited_by": "steph",
     } in snap["hexes"]
 
 
@@ -300,3 +301,87 @@ def test_label_migration(tmp_path: Path) -> None:
     store = MapStore(db_file)
     store.set_label(0, 0, "migrated")
     assert store.snapshot()["hexes"][0]["label"] == "migrated"
+
+
+def _hex(store: MapStore, q: int, r: int) -> dict[str, object] | None:
+    for h in store.snapshot()["hexes"]:
+        if h["q"] == q and h["r"] == r:
+            return h
+    return None
+
+
+def test_edited_by_stamped(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST", "alice")
+    assert _hex(store, 0, 0)["edited_by"] == "alice"  # type: ignore[index]
+    store.set_icon(0, 0, "Tower", "bob")
+    assert _hex(store, 0, 0)["edited_by"] == "bob"  # type: ignore[index]
+
+
+def test_undo_paint_restores_previous_terrain(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST", "alice")
+    store.set_hex(0, 0, "DESERT", "bob")
+    assert store.can_undo()
+    label = store.undo()
+    assert label is not None
+    assert _hex(store, 0, 0)["terrain"] == "FOREST"  # type: ignore[index]
+
+
+def test_undo_paint_of_new_hex_removes_it(store: MapStore) -> None:
+    store.set_hex(3, 3, "FOREST", "alice")
+    store.undo()
+    assert _hex(store, 3, 3) is None
+
+
+def test_undo_remove_hex_restores_it(store: MapStore) -> None:
+    store.set_hex(1, 1, "LAKE", "alice")
+    store.set_note(1, 1, "kraken", "alice")
+    store.remove_hex(1, 1, "bob")
+    store.undo()
+    restored = _hex(store, 1, 1)
+    assert restored is not None
+    assert restored["terrain"] == "LAKE"
+    assert restored["note"] == "kraken"
+
+
+def test_undo_feature_removes_it(store: MapStore) -> None:
+    store.set_hex(0, 0, "GRASSLAND")
+    store.set_hex(1, 0, "GRASSLAND")
+    f = store.add_feature("road", [(0, 0), (1, 0)], "alice")
+    assert len(store.features()) == 1
+    store.undo()
+    assert store.features() == []
+    assert f["id"] is not None
+
+
+def test_undo_clear_all_restores_map(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST", "alice")
+    store.set_hex(1, 0, "DESERT", "alice")
+    store.clear_all("bob")
+    assert store.count() == 1  # the seeded FOG hex
+    store.undo()
+    assert _hex(store, 0, 0)["terrain"] == "FOREST"  # type: ignore[index]
+    assert _hex(store, 1, 0)["terrain"] == "DESERT"  # type: ignore[index]
+
+
+def test_undo_empty_returns_none(store: MapStore) -> None:
+    assert store.undo() is None
+    assert not store.can_undo()
+
+
+def test_undo_is_lifo(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST", "a")
+    store.set_hex(0, 0, "DESERT", "a")
+    store.set_hex(0, 0, "LAKE", "a")
+    store.undo()
+    assert _hex(store, 0, 0)["terrain"] == "DESERT"  # type: ignore[index]
+    store.undo()
+    assert _hex(store, 0, 0)["terrain"] == "FOREST"  # type: ignore[index]
+    store.undo()
+    assert _hex(store, 0, 0) is None
+
+
+def test_undo_stack_capped_at_100(store: MapStore) -> None:
+    for i in range(130):
+        store.set_hex(0, 0, "FOREST" if i % 2 else "DESERT", "a")
+    rows = store.db.execute("SELECT COUNT(*) FROM undo").fetchone()[0]
+    assert rows <= 100
