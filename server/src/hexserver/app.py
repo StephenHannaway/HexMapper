@@ -308,27 +308,25 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     continue
                 if out is not None and out.get("type") != "ping":
                     out["by"] = author
-                    store.log_op(
-                        author,
-                        str(op),
-                        {
-                            k: msg[k]
-                            for k in (
-                                "q",
-                                "r",
-                                "terrain",
-                                "icon",
-                                "explored",
-                                "enabled",
-                                "kind",
-                                "id",
-                                "label",
-                                "clear",
-                            )
-                            if k in msg
-                        },
-                        room,
-                    )
+                    detail = {
+                        k: msg[k]
+                        for k in (
+                            "q",
+                            "r",
+                            "terrain",
+                            "icon",
+                            "explored",
+                            "enabled",
+                            "kind",
+                            "id",
+                            "label",
+                            "clear",
+                        )
+                        if k in msg
+                    }
+                    if isinstance(out.get("count"), int):
+                        detail["count"] = out["count"]
+                    store.log_op(author, str(op), detail, room)
             if out is not None:
                 await hub.broadcast(out, room)
     except WebSocketDisconnect:
@@ -345,6 +343,9 @@ DM_OPS = {"clear_all", "set_explored", "set_fog", "undo"}
 # Per-connection flood guard: allow a short burst, then a steady rate.
 RATE_BURST = 40
 RATE_PER_SEC = 25.0
+
+# One brush stamp arrives as a single batched message; radius-3 brush = 37 hexes.
+MAX_BATCH_HEXES = 128
 
 
 class RateLimiter:
@@ -422,6 +423,32 @@ def apply_op(
             "r": r,
             "icon": icon,
             "edited_by": author,
+        }
+    if op == "paint_hexes":
+        terrain = str(msg["terrain"])
+        coords = [(int(q), int(r)) for q, r in msg["hexes"]]
+        if not 1 <= len(coords) <= MAX_BATCH_HEXES:
+            raise ValueError(f"need 1-{MAX_BATCH_HEXES} hexes")
+        rows = store.set_hexes(coords, terrain, author, map_id)
+        return {
+            "type": "op",
+            "op": "paint_hexes",
+            "version": v(map_id),
+            "hexes": rows,
+            "terrain": terrain,
+            "count": len(rows),
+        }
+    if op == "remove_hexes":
+        coords = [(int(q), int(r)) for q, r in msg["hexes"]]
+        if not 1 <= len(coords) <= MAX_BATCH_HEXES:
+            raise ValueError(f"need 1-{MAX_BATCH_HEXES} hexes")
+        removed = store.remove_hexes(coords, author, map_id)
+        return {
+            "type": "op",
+            "op": "remove_hexes",
+            "version": v(map_id),
+            "hexes": removed,
+            "count": len(removed),
         }
     if op == "remove_hex":
         q, r = int(msg["q"]), int(msg["r"])

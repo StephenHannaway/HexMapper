@@ -366,6 +366,64 @@ class MapStore:
             )
         self._bump(map_id)
 
+    def set_hexes(
+        self,
+        coords: list[tuple[int, int]],
+        terrain: str,
+        author: str = "someone",
+        map_id: int = DEFAULT_MAP_ID,
+    ) -> list[dict[str, Any]]:
+        if terrain not in TERRAINS:
+            raise ValueError(f"unknown terrain {terrain!r}")
+        unique = list(dict.fromkeys(coords))
+        priors = {(q, r): self._hex_row(map_id, q, r) for q, r in unique}
+        self.db.executemany(
+            "INSERT INTO hexes (map_id, q, r, terrain, icon, edited_by) "
+            "VALUES (?, ?, ?, ?, NULL, ?) "
+            "ON CONFLICT (map_id, q, r) DO UPDATE SET terrain = excluded.terrain, "
+            "explored = 1, edited_by = excluded.edited_by",
+            [(map_id, q, r, terrain, author) for q, r in unique],
+        )
+        self.db.commit()
+        self._push_undo(
+            map_id,
+            author,
+            f"paint {len(unique)} hexes",
+            {
+                "kind": "restore_hexes",
+                "rows": [row for row in priors.values() if row is not None],
+                "created": [[q, r] for (q, r), row in priors.items() if row is None],
+            },
+        )
+        self._bump(map_id)
+        rows = (self._hex_row(map_id, q, r) for q, r in unique)
+        return [row for row in rows if row is not None]
+
+    def remove_hexes(
+        self,
+        coords: list[tuple[int, int]],
+        author: str = "someone",
+        map_id: int = DEFAULT_MAP_ID,
+    ) -> list[list[int]]:
+        unique = list(dict.fromkeys(coords))
+        priors = [
+            row for q, r in unique if (row := self._hex_row(map_id, q, r)) is not None
+        ]
+        self.db.executemany(
+            "DELETE FROM hexes WHERE map_id = ? AND q = ? AND r = ?",
+            [(map_id, q, r) for q, r in unique],
+        )
+        self.db.commit()
+        if priors:
+            self._push_undo(
+                map_id,
+                author,
+                f"remove {len(priors)} hexes",
+                {"kind": "restore_hexes", "rows": priors, "created": []},
+            )
+        self._bump(map_id)
+        return [[int(row["q"]), int(row["r"])] for row in priors]
+
     def add_layer(
         self, terrain: str, author: str = "someone", map_id: int = DEFAULT_MAP_ID
     ) -> list[dict[str, Any]]:
@@ -698,6 +756,13 @@ class MapStore:
                 "DELETE FROM hexes WHERE map_id = ? AND q = ? AND r = ?",
                 [(map_id, q, r) for q, r in inv["coords"]],
             )
+        elif kind == "restore_hexes":
+            self.db.executemany(
+                "DELETE FROM hexes WHERE map_id = ? AND q = ? AND r = ?",
+                [(map_id, q, r) for q, r in inv["created"]],
+            )
+            for row_ in inv["rows"]:
+                self._restore_hex(map_id, row_)
         elif kind == "restore_all":
             self.db.execute("DELETE FROM hexes WHERE map_id = ?", (map_id,))
             self.db.execute("DELETE FROM features WHERE map_id = ?", (map_id,))

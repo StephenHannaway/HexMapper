@@ -545,3 +545,67 @@ def _hex_on(store: MapStore, map_id: int, q: int, r: int) -> dict[str, object] |
         if h["q"] == q and h["r"] == r:
             return h
     return None
+
+
+# --- brush batches (paint_hexes / remove_hexes) ---
+
+
+def test_set_hexes_paints_batch(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    rows = store.set_hexes([(0, 0), (1, 0), (0, 1)], "FOREST", "steph")
+    assert len(rows) == 3
+    assert all(r["terrain"] == "FOREST" for r in rows)
+    assert all(r["edited_by"] == "steph" for r in rows)
+    assert store.count() == 3
+
+
+def test_set_hexes_preserves_icon_and_note(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_icon(0, 0, "castle")
+    store.set_note(0, 0, "owlbear den", "steph")
+    rows = store.set_hexes([(0, 0), (1, 0)], "FOREST")
+    by_coord = {(r["q"], r["r"]): r for r in rows}
+    assert by_coord[(0, 0)]["icon"] == "castle"
+    assert by_coord[(0, 0)]["note"] == "owlbear den"
+    assert by_coord[(1, 0)]["icon"] is None
+
+
+def test_set_hexes_dedupes(store: MapStore) -> None:
+    rows = store.set_hexes([(0, 0), (0, 0), (1, 0)], "FOREST")
+    assert len(rows) == 2
+    assert store.count() == 2
+
+
+def test_set_hexes_rejects_unknown_terrain(store: MapStore) -> None:
+    with pytest.raises(ValueError, match="unknown terrain"):
+        store.set_hexes([(0, 0)], "LAVA_LAND")
+    assert store.count() == 0
+
+
+def test_undo_set_hexes_is_one_step(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOG")
+    store.set_hexes([(0, 0), (1, 0), (0, 1)], "FOREST", "steph")
+    assert store.undo() == "paint 3 hexes"
+    # the pre-existing hex reverts, the new ones vanish
+    assert _hex_on(store, 1, 0, 0)["terrain"] == "FOG"  # type: ignore[index]
+    assert store.count() == 1
+    # only the original set_hex remains on the stack
+    assert store.undo() == "paint 0,0"
+    assert store.count() == 0
+
+
+def test_remove_hexes_and_undo(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST")
+    store.set_hex(1, 0, "OCEAN")
+    store.set_note(0, 0, "keep me", "steph")
+    removed = store.remove_hexes([(0, 0), (1, 0), (9, 9)], "steph")
+    assert sorted(removed) == [[0, 0], [1, 0]]
+    assert store.count() == 0
+    assert store.undo() == "remove 2 hexes"
+    assert store.count() == 2
+    assert _hex_on(store, 1, 0, 0)["note"] == "keep me"  # type: ignore[index]
+
+
+def test_remove_hexes_of_nothing_pushes_no_undo(store: MapStore) -> None:
+    assert store.remove_hexes([(5, 5)]) == []
+    assert not store.can_undo()

@@ -29,6 +29,8 @@ const state = {
   tool: "paint", // paint | icon | remove
   terrain: "GRASSLAND",
   icon: null,
+  brush: 1, // 1-4: hex radius 0-3 around the cursor, for paint & remove
+  hover: null, // [q, r] under the cursor, for the brush outline
   offsetX: 0,
   offsetY: 0,
   scale: 1.5,
@@ -77,6 +79,17 @@ function featureIdsAt(q, r) {
     if (f.path.some(([pq, pr]) => pq === q && pr === r)) ids.push(f.id);
   }
   return ids;
+}
+
+function brushHexes(q, r) {
+  const R = state.brush - 1;
+  const out = [];
+  for (let dq = -R; dq <= R; dq++) {
+    for (let dr = Math.max(-R, -dq - R); dr <= Math.min(R, -dq + R); dr++) {
+      out.push([q + dq, r + dr]);
+    }
+  }
+  return out;
 }
 
 function hexToPixel(q, r) {
@@ -267,6 +280,16 @@ function draw() {
     ctx.globalAlpha = 0.5;
     strokeFeature(full.length > 1 ? full : state.draft.waypoints, state.draft.kind, true);
     ctx.globalAlpha = 1;
+  }
+  if (!exporting && state.hover && !dragging &&
+      (state.tool === "paint" || state.tool === "remove")) {
+    ctx.strokeStyle = state.tool === "remove" ? "#ff6b6bcc" : "#ffffffaa";
+    ctx.lineWidth = 1.5;
+    for (const [bq, br] of brushHexes(state.hover[0], state.hover[1])) {
+      const [wx, wy] = hexToPixel(bq, br);
+      traceHex(wx * state.scale + state.offsetX, wy * state.scale + state.offsetY, size);
+      ctx.stroke();
+    }
   }
   const cutoff = Date.now() - 6000;
   for (const c of cursors.values()) {
@@ -591,7 +614,9 @@ function connect() {
         }
       } else if (msg.op === "remove_hex") {
         state.hexes.delete(key(msg.q, msg.r));
-      } else if (msg.op === "apply_hexes") {
+      } else if (msg.op === "remove_hexes") {
+        for (const [rq, rr] of msg.hexes) state.hexes.delete(key(rq, rr));
+      } else if (msg.op === "apply_hexes" || msg.op === "paint_hexes") {
         msg.hexes.forEach(applyHex);
       }
       state.version = msg.version;
@@ -602,7 +627,7 @@ function connect() {
         detail: {
           q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon,
           explored: msg.explored, enabled: msg.enabled, label: msg.label,
-          clear: msg.clear,
+          clear: msg.clear, count: msg.count,
           kind: msg.feature ? msg.feature.kind : undefined,
         },
       });
@@ -797,7 +822,7 @@ minimap.addEventListener("click", (e) => {
 
 // --- editing ---
 
-function editAt(clientX, clientY, ev) {
+function editAt(clientX, clientY, ev, drag = false) {
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = screenToWorld(
     (clientX - rect.left) * devicePixelRatio,
@@ -863,13 +888,21 @@ function editAt(clientX, clientY, ev) {
       toast(`Party moved to ${q},${r}`);
     }
   } else if (state.tool === "remove") {
-    // remove a road/river here first; otherwise remove the hex itself
-    const ids = featureIdsAt(q, r);
-    if (ids.length) {
-      send({ op: "remove_feature", id: ids[ids.length - 1] });
-    } else if (cell) {
-      state.hexes.delete(k);
-      send({ op: "remove_hex", q, r });
+    if (state.brush > 1) {
+      // big brush erases hexes only — roads/rivers stay surgical (size 1)
+      const targets = brushHexes(q, r).filter((c) => state.hexes.has(key(c[0], c[1])));
+      if (!targets.length) return;
+      for (const c of targets) state.hexes.delete(key(c[0], c[1]));
+      send({ op: "remove_hexes", hexes: targets });
+    } else {
+      // remove a road/river here first (click only); otherwise the hex itself
+      const ids = drag ? [] : featureIdsAt(q, r);
+      if (ids.length) {
+        send({ op: "remove_feature", id: ids[ids.length - 1] });
+      } else if (cell) {
+        state.hexes.delete(k);
+        send({ op: "remove_hex", q, r });
+      }
     }
   } else if (state.tool === "icon") {
     if (!cell || !state.icon) return;
@@ -877,16 +910,27 @@ function editAt(clientX, clientY, ev) {
     cell.icon = icon;
     send({ op: "set_icon", q, r, icon });
   } else {
-    if (cell && cell.terrain === state.terrain) return;
-    state.hexes.set(k, {
-      q, r, terrain: state.terrain,
-      icon: cell ? cell.icon : null,
-      note: cell ? cell.note : null,
-      note_author: cell ? cell.note_author : null,
-      explored: 1,
-      label: cell ? cell.label : null,
+    const targets = brushHexes(q, r).filter(([bq, br]) => {
+      const c = state.hexes.get(key(bq, br));
+      return !c || c.terrain !== state.terrain;
     });
-    send({ op: "set_hex", q, r, terrain: state.terrain });
+    if (!targets.length) return;
+    for (const [bq, br] of targets) {
+      const c = state.hexes.get(key(bq, br));
+      state.hexes.set(key(bq, br), {
+        q: bq, r: br, terrain: state.terrain,
+        icon: c ? c.icon : null,
+        note: c ? c.note : null,
+        note_author: c ? c.note_author : null,
+        explored: 1,
+        label: c ? c.label : null,
+      });
+    }
+    if (state.brush === 1) {
+      send({ op: "set_hex", q, r, terrain: state.terrain });
+    } else {
+      send({ op: "paint_hexes", terrain: state.terrain, hexes: targets });
+    }
   }
   draw();
 }
@@ -945,8 +989,8 @@ canvas.addEventListener("pointermove", (e) => {
     state.offsetX += dx * devicePixelRatio;
     state.offsetY += dy * devicePixelRatio;
     draw();
-  } else if (painting && state.tool === "paint") {
-    editAt(e.clientX, e.clientY, e);
+  } else if (painting && (state.tool === "paint" || state.tool === "remove")) {
+    editAt(e.clientX, e.clientY, e, true);
   }
   const rect = canvas.getBoundingClientRect();
   const [hwx, hwy] = screenToWorld(
@@ -959,6 +1003,15 @@ canvas.addEventListener("pointermove", (e) => {
   coordsEl.textContent =
     `hex ${hq},${hr}` +
     (hcell && hcell.edited_by && !hidden ? ` · last: ${hcell.edited_by}` : "");
+  if (state.tool === "paint" || state.tool === "remove") {
+    if (!state.hover || state.hover[0] !== hq || state.hover[1] !== hr) {
+      state.hover = [hq, hr];
+      draw();
+    }
+  } else if (state.hover) {
+    state.hover = null;
+    draw();
+  }
   if (state.draft && state.draft.waypoints.length) {
     const last = state.draft.waypoints[state.draft.waypoints.length - 1];
     state.draft.preview = jsAStar(last, [hq, hr], state.draft.kind) || [];
@@ -976,7 +1029,8 @@ function endPointer(e) {
 
 canvas.addEventListener("pointerup", (e) => {
   const wasPainting = painting && !didPinch;
-  const doEdit = wasPainting && (state.tool !== "paint" || moved < 6);
+  const dragTool = state.tool === "paint" || state.tool === "remove";
+  const doEdit = wasPainting && (!dragTool || moved < 6);
   endPointer(e);
   if (doEdit) editAt(e.clientX, e.clientY, e);
 });
@@ -1055,6 +1109,8 @@ window.addEventListener("keydown", (e) => {
   }
   if (e.key === "+" || e.key === "=") { zoomAtCenter(1.15); return; }
   if (e.key === "-" || e.key === "_") { zoomAtCenter(1 / 1.15); return; }
+  if (e.key === "[") { setBrush(state.brush - 1); return; }
+  if (e.key === "]") { setBrush(state.brush + 1); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (TOOL_KEYS[k]) {
@@ -1124,7 +1180,21 @@ function setTool(tool) {
   if (state.draft && state.draft.kind !== tool) cancelDraft();
   if (tool !== "measure" && state.measure) clearMeasure();
   canvas.style.cursor = tool === "pan" ? "grab" : "crosshair";
+  if (tool !== "paint" && tool !== "remove") state.hover = null;
+  draw();
 }
+
+function setBrush(n) {
+  state.brush = Math.min(4, Math.max(1, n));
+  document.querySelectorAll("#brushBtns button").forEach((b) => {
+    b.classList.toggle("active", +b.dataset.size === state.brush);
+  });
+  toast(`Brush size ${state.brush}`);
+  draw();
+}
+document.querySelectorAll("#brushBtns button").forEach((b) => {
+  b.onclick = () => setBrush(+b.dataset.size);
+});
 
 // --- notes ---
 
@@ -1233,7 +1303,10 @@ function opText(e) {
       if (e.count > 1) return `painted ${e.count} hexes ${(d.terrain || "").toLowerCase()}`;
       return `painted${at} ${(d.terrain || "").toLowerCase()}`;
     case "set_icon": return d.icon ? `placed ${d.icon} at${at}` : `cleared the icon at${at}`;
+    case "paint_hexes":
+      return `painted ${d.count || "several"} hexes ${(d.terrain || "").toLowerCase()}`;
     case "remove_hex": return `removed hex${at}`;
+    case "remove_hexes": return `removed ${d.count || "several"} hexes`;
     case "set_note": return `wrote a note on${at}`;
     case "set_label": return d.label ? `named${at} "${d.label}"` : `cleared the name of${at}`;
     case "set_party": return d.clear ? "removed the party marker" : `moved the party to${at}`;
@@ -1264,11 +1337,19 @@ function renderHistory() {
 
 function addHistory(entry) {
   const top = historyEntries[0];
-  if (top && entry.op === "set_hex" && top.op === "set_hex" &&
-      top.player === entry.player && entry.ts - top.ts < 120) {
+  const merge = top && entry.op === top.op && top.player === entry.player &&
+    entry.ts - top.ts < 120;
+  if (merge && entry.op === "set_hex") {
     top.count = (top.count || 1) + 1;
     top.ts = entry.ts;
     top.detail = entry.detail;
+    renderHistory();
+    return;
+  }
+  if (merge && (entry.op === "paint_hexes" || entry.op === "remove_hexes")) {
+    entry.detail.count = (top.detail.count || 0) + (entry.detail.count || 0);
+    top.detail = entry.detail;
+    top.ts = entry.ts;
     renderHistory();
     return;
   }
