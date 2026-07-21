@@ -1,0 +1,717 @@
+0101 ocean
+0102 ocean
+0103 ocean
+0104 ocean
+0105 ocean
+0106 ocean
+0107 ocean
+0108 ocean
+0109 ocean
+0110 ocean
+0111 ocean
+0112 ocean
+0113 ocean
+0114 ocean
+0115 ocean
+0116 ocean
+0117 ocean
+0118 ocean
+0119 ocean
+0120 ocean
+0121 ocean
+0122 ocean
+0123 ocean
+0124 ocean
+0125 ocean
+0126 ocean
+0127 ocean
+0128 ocean
+0129 ocean
+0130 ocean
+0131 ocean
+0132 ocean
+0133 ocean
+0134 ocean
+0135 ocean
+0136 ocean
+0137 ocean
+0138 ocean
+0139 ocean
+0140 ocean
+0141 ocean
+0142 ocean
+0143 ocean
+0144 ocean
+0145 ocean
+0146 ocean
+0147 ocean
+0148 ocean
+0149 ocean
+0150 ocean
+0151 ocean
+0152 ocean
+0153 ocean
+0154 ocean
+0155 ocean
+0156 ocean
+0157 ocean
+0158 ocean
+0159 ocean
+0160 ocean
+0161 ocean
+0162 ocean
+0163 ocean
+0164 ocean
+0165 ocean
+0166 ocean
+0167 ocean
+0168 ocean
+0169 ocean
+0170 ocean
+0171 ocean
+0172 ocean
+0173 ocean
+0174 ocean
+0175 ocean
+0176 water
+0177 dark-green forest
+0276 sand
+0277 dark-green forest
+0378 dark-green forest
+0478 dark-green forest
+0555 ocean
+0579 dark-green forest
+0679 dark-green forest
+0780 dark-green forest
+0880 dark-green forest
+0981 dark-green forest
+1081 dark-green forest
+1182 dark-green forest
+1282 dark-green forest
+
+
+1367 empty
+1368 empty
+1369 empty
+1370 empty
+1371 empty
+1372 empty
+1373 empty
+1374 empty
+1375 empty
+1376 empty
+1377 empty
+1378 empty
+1379 empty
+1380 empty
+1381 empty
+1382 empty
+1383 dark-green forest
+1384 empty
+1385 empty
+1386 empty
+1387 empty
+1467 empty
+1468 empty
+1469 empty
+1470 empty
+1471 empty
+1472 empty
+1473 empty
+1474 empty
+1475 empty
+1476 empty
+1477 empty
+1478 empty
+1479 empty
+1480 empty
+1481 empty
+1482 empty
+1483 dark-green forest
+1484 empty
+1485 empty
+1486 empty
+1487 empty
+1567 empty
+1568 empty
+1569 empty
+1570 empty
+1571 empty
+1572 empty
+1573 empty
+1574 empty
+1575 empty
+1576 empty
+1577 empty
+1578 empty
+1579 empty
+1580 empty
+1581 empty
+1582 empty
+1583 empty
+1584 dark-green forest
+1585 empty
+1586 empty
+1587 empty
+1667 empty
+1668 empty
+1669 empty
+1670 empty
+1671 empty
+1672 empty
+1673 empty
+1674 empty
+1675 empty
+1676 empty
+1677 empty
+1678 empty
+1679 empty
+1680 empty
+1681 empty
+1682 empty
+1683 empty
+1684 dark-green forest
+1685 empty
+1686 empty
+1687 empty
+1767 empty
+1768 empty
+1769 empty
+1770 empty
+1771 empty
+1772 empty
+1773 empty
+1774 empty
+1775 empty
+1776 empty
+1777 empty
+1778 empty
+1779 empty
+1780 empty
+1781 empty
+1782 empty
+1783 empty
+1784 empty
+1785 dark-green forest
+1786 empty
+1787 empty
+1867 empty
+1868 empty
+1869 empty
+1870 empty
+1871 empty
+1872 empty
+1873 empty
+1874 empty
+1875 empty
+1876 empty
+1877 empty
+1878 empty
+1879 empty
+1880 empty
+1881 empty
+1882 empty
+1883 empty
+1884 green village "Pinewatch"
+1885 dark-green forest
+1886 empty
+1887 empty
+1967 empty
+1968 empty
+1969 empty
+1970 empty
+1971 empty
+1972 empty
+1973 empty
+1974 empty
+1975 soil
+1976 soil fields
+1977 soil fields
+1978 soil fields
+1979 dark-green
+1980 empty
+1981 empty
+1982 empty
+1983 empty
+1984 empty
+1985 empty
+1986 dark-green forest
+1987 dark-green forest
+2067 empty
+2068 empty
+2069 empty
+2070 empty
+2071 empty
+2072 empty
+2073 empty
+2074 soil fields
+2075 soil
+2076 soil fields
+2077 soil fields
+2078 green
+2079 dark-green forest
+2080 empty
+2081 empty
+2082 empty
+2083 empty
+2084 empty
+2085 empty
+2086 empty
+2087 dark-green forest
+2167 empty
+2168 empty
+2169 empty
+2170 empty
+2171 empty
+2172 empty
+2173 empty
+2174 soil fields
+2175 soil fields
+2176 light-green
+2177 light-green village
+2178 light-green
+2179 green forest
+2180 dark-green forest
+2181 empty
+2182 empty
+2183 empty
+2184 empty
+2185 empty
+2186 empty
+2187 empty
+2188 dark-green forest
+2189 dark-green forest
+2267 empty
+2268 empty
+2269 empty
+2270 empty
+2271 empty
+2272 empty
+2273 soil fields
+2274 soil fields
+2275 light-green village
+2276 green
+2277 green
+2278 green forest
+2279 green forest
+2280 dark-green forest
+2281 empty
+2282 empty
+2283 empty
+2284 empty
+2285 empty
+2286 empty
+2287 empty
+2289 dark-green forest
+2367 empty
+2368 empty
+2369 empty
+2370 empty
+2371 empty
+2372 empty
+2373 green
+2374 green
+2375 light-green
+2376 green
+2377 citywalls0 citywalls1 citywalls2 citywalls3 city "Akaford"
+2378 green 
+2379 green
+2380 dark-green forest-mountains
+2381 light-green forest-mountains
+2382 empty
+2383 empty
+2384 empty
+2385 empty
+2386 empty
+2387 empty
+2388 empty
+2390 dark-green forest
+2391 dark-green forest
+2399 rock mountains
+2467 empty
+2468 empty
+2469 empty
+2470 empty
+2471 empty
+2472 empty
+2473 green
+2474 green
+2475 green
+2476 green
+2477 green
+2478 green mountain
+2479 green forest-mountains
+2480 light-green forest-mountains
+2481 empty 
+2482 empty
+2483 empty
+2484 empty
+2485 empty
+2486 empty
+2487 empty
+2488 empty.
+2491 dark-green forest
+2498 rock mountains
+2567 empty
+2568 empty
+2569 empty
+2570 empty
+2571 empty
+2572 empty
+2573 empty
+2574 green
+2575 green
+2576 green
+2577 light-green
+2578 light-green
+2579 light-green forest-hill
+2580 light-green mountains
+2581 empty
+2582 empty
+2583 empty
+2584 empty
+2585 empty
+2586 empty
+2587 empty
+2589 empty
+2592 dark-green forest
+2593 dark-green forest
+2598 rock mountains
+2667 empty
+2668 empty
+2669 empty
+2670 empty
+2671 empty
+2672 empty
+2673 empty
+2674 green
+2675 green
+2676 light-green
+2677 light-green
+2678 light-green
+2679 light-green mountains
+2680 empty
+2681 empty
+2682 empty
+2683 empty
+2684 empty
+2685 empty
+2686 empty
+2687 empty
+2689 empty
+2693 dark-green forest
+2697 rock mountains
+2767 empty
+2768 empty
+2769 empty
+2770 empty
+2771 empty
+2772 empty
+2773 dark-green forest
+2774 village green "Hommlet"
+2775 green
+2776 light-green
+2777 light-grey shrine
+2778 light-green
+2779 light-green
+2780 empty
+2781 empty
+2782 empty
+2783 empty
+2784 empty
+2785 empty
+2786 empty
+2787 empty
+2790 empty
+2794 dark-green forest
+2796 rock mountains
+2797 rock mountains
+2867 empty
+2868 empty
+2869 empty
+2870 empty
+2871 empty
+2872 empty
+2873 dark-green forest
+2874 green tower "The Moathouse"
+2875 empty
+2876 empty
+2877 empty
+2878 empty
+2879 empty
+2880 empty
+2881 empty
+2882 empty
+2883 empty
+2884 empty
+2885 empty
+2886 empty
+2887 empty
+2890 empty
+2894 dark-green forest-mountains
+2895 rock mountains
+2967 empty
+2968 empty
+2969 empty
+2970 empty
+2971 empty
+2972 empty
+2973 empty
+2974 dark-green forest
+2975 empty
+2976 empty
+2977 empty
+2978 empty
+2979 empty
+2980 empty
+2981 empty
+2982 empty
+2983 empty
+2984 empty
+2985 empty
+2986 empty
+2987 empty
+2991 empty
+2995 rock mountains
+3067 empty
+3068 empty
+3069 empty
+3070 empty
+3071 empty
+3072 empty
+3073 empty
+3074 empty
+3075 empty
+3076 empty
+3077 empty
+3078 empty
+3079 empty
+3080 empty
+3081 empty
+3082 empty
+3083 empty
+3084 empty
+3085 empty
+3086 empty
+3087 empty
+3091 empty
+3094 rock mountains
+3167 empty
+3168 empty
+3169 empty
+3170 empty
+3171 empty
+3172 empty
+3173 empty
+3174 empty
+3175 empty
+3176 empty
+3177 empty
+3178 empty
+3179 empty
+3180 empty
+3181 empty
+3182 empty
+3183 empty
+3184 empty
+3185 empty
+3186 empty
+3187 empty
+3192 empty
+3193 rock mountains
+3194 rock mountains
+3267 empty
+3268 empty
+3269 empty
+3270 empty
+3271 empty
+3272 empty
+3273 empty
+3274 empty
+3275 empty
+3276 empty
+3277 empty
+3278 empty
+3279 empty
+3280 empty
+3281 empty
+3282 empty
+3283 empty
+3284 empty
+3285 empty
+3286 empty
+3287 empty
+3292 rock mountains
+3367 empty
+3368 empty
+3369 empty
+3370 empty
+3371 empty
+3372 empty
+3373 empty
+3374 empty
+3375 empty
+3376 empty
+3377 empty
+3378 empty
+3379 empty
+3380 empty
+3381 empty
+3382 empty
+3383 empty
+3384 empty
+3385 empty
+3386 empty
+3387 empty
+3392 rock mountains
+3491 rock mountains
+3591 rock mountains
+3690 rock mountains
+3789 rock mountains
+3790 rock mountains
+3888 rock mountains
+3988 rock mountains
+4087 rock mountains
+4187 rock mountains
+4286 rock mountains
+4386 rock mountains
+4485 rock mountains
+4585 rock mountains
+4684 rock mountains
+4784 rock mountains
+4783 rock mountains
+4882 rock mountains
+4982 rock mountains
+5081 rock mountains
+5181 rock mountains
+5280 rock mountains
+5380 rock mountains
+5479 rock mountains
+5480 rock mountains
+5581 rock mountains
+5681 rock mountains
+5782 rock mountains
+5882 rock mountains
+5982 rock mountain chaos "Goblinhome"
+5983 rock mountains
+
+6078 rock mountains
+6079 rock mountains
+6080 rock mountains
+6081 rock mountains
+6082 rock mountains
+6175 rock mountains
+6176 rock mountains
+6177 rock mountains
+6178 rock mountains
+6271 rock mountains
+6272 rock mountains
+6273 rock mountains
+6274 rock mountains
+6368 rock mountains
+6369 rock mountains
+6370 rock mountains
+6371 rock mountains
+6464 rock mountains
+6465 rock mountains
+6466 rock mountains
+6467 rock mountains
+6561 rock mountains
+6562 rock mountains
+6563 rock mountains
+6564 rock mountains
+6601 ocean
+6602 ocean
+6603 ocean
+6604 ocean
+6605 ocean
+6606 ocean
+6607 ocean
+6608 ocean
+6609 ocean
+6610 ocean
+6611 ocean
+6612 ocean
+6613 ocean
+6614 ocean
+6615 ocean
+6616 ocean
+6617 ocean
+6618 ocean
+6619 ocean
+6620 ocean
+6621 ocean
+6622 ocean
+6623 ocean
+6624 ocean
+6625 ocean
+6626 ocean
+6627 ocean
+6628 ocean
+6629 ocean
+6630 ocean
+6631 ocean
+6632 ocean
+6633 ocean
+6634 ocean
+6635 ocean
+6636 ocean
+6637 ocean
+6638 ocean
+6639 ocean
+6640 ocean
+6641 ocean
+6642 ocean
+6643 ocean
+6644 ocean
+6645 ocean
+6646 ocean
+6647 ocean
+6648 ocean
+6649 ocean
+6650 ocean
+6651 ocean
+6652 ocean
+6653 ocean
+6654 ocean
+6655 ocean
+6656 ocean
+6657 ocean
+6658 water cliff4
+6659 rock mountains
+6660 rock mountains
+
+2377-2874 canal
+2377-2372-1867 canal
+2377-2779 canal
+2377-2381-2483-2585-2687-2890-3095-3299 canal
+2377-1579-1378 canal
+2377-1372-1368 canal
+
+2078-1879-1684 canal
+2381-1885 river
+
+
+
+2377-2476-2475-2576-2675-2775-2774 trailn
+2377-2476-2475-2576-2676-2677-2778-2878 trailn
+
+2374-2473-2574-2674-2675-2575-2475-2474-2374 large-lake
+
+2774-2672 trail
+2775-2774-2873-2872 river
+
+
+<ellipse id="citywalls0" stroke="#999999" fill="#999999" stroke-width="8" cx="0" cy="0" rx="170" ry="170"/>
+
+<ellipse id="citywalls1" stroke="#6ebae7" fill="none" stroke-width="8" cx="0" cy="0" rx="175" ry="175"/>
+
+<ellipse id="citywalls2" stroke="#6ebae7" fill="none" stroke-width="8" cx="0" cy="0" rx="350" ry="350"/>
+<ellipse id="citywalls3" stroke="#6ebae7" fill="none" stroke-width="8" cx="0" cy="0" rx="700" ry="700"/>
+
+large-lake path attributes stroke="black" stroke-width="3" fill="#6ebae7" opacity="1"
+canal path attributes stroke="#6ebae7" stroke-width="8" fill="none" opacity="1"
+trailn path attributes stroke="#e3bea3" stroke-width="6" fill="none" transform="translate(-20, -10)"
+
+include gnomeyland.txt
+license <text>Public Domain</text>
