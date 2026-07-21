@@ -18,3 +18,6 @@ homlet
 hex5
 
 server/map.db
+
+# local prod DB backups
+backups/
