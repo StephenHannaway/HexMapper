@@ -551,7 +551,9 @@ async def index() -> HTMLResponse:
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     version = str(int((WEB_DIR / "app.js").stat().st_mtime))
     html = html.replace("/app.js", f"/app.js?v={version}")
-    return HTMLResponse(html)
+    # never cache the shell itself, so the versioned app.js URL always reaches
+    # the browser and a deploy can't be masked by a cached index.html
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR), name="web")
