@@ -3,11 +3,14 @@
 Handoff for a fresh Claude Code session working in `C:\Users\Steph\Projects\Code\Hex Editor`.
 Read this whole file before starting. Pick items by priority unless Stephen says otherwise.
 
-**Status 2026-07-21:** 26 of 27 items are done. Batch 1 (items 1-3, 6-9, 13-15,
-17-20, 22, 24-27) merged and deployed. Batch 2 on branch `feat/finish-backlog`
-adds 4 (undo), 5 (rate limiting), 10 (travel measure), 16 (last-edited-by), 21
-(minimap), 23 (theme/grid) plus a sidebar layout redesign. **Only 12 (multiple
-maps) remains** — the big structural one; do it on its own branch.
+**Status 2026-07-21:** **All 27 items are done, merged and deployed.** Batch 1
+(items 1-3, 6-9, 13-15, 17-20, 22, 24-27), batch 2 (4 undo, 5 rate limiting, 10
+travel measure, 16 last-edited-by, 21 minimap, 23 theme/grid, plus a sidebar
+layout redesign), and item 12 (multiple maps) are all live on
+https://hexmapper-west-marches.fly.dev. The multiple-maps migration was verified
+against a copy of the live prod DB (218 hexes preserved) before deploy; a backup
+sits in `backups/` (gitignored). Nothing outstanding on the original backlog —
+pick new work with Stephen.
 
 ## What this project is
 
@@ -170,12 +173,28 @@ then two thin tool variants.
     rendering beneath roads; both fog-aware (players see lines break at unexplored
     hexes) and both round-trip through `.hexmap`.
 
-## Suggested next batch
+## Item 12 as built (multiple maps)
 
-Only item 12 (multiple maps) is left — region/dungeon maps with a switcher: a
-`maps` table, `map_id` on hexes/features/meta, per-map WS rooms, and a client map
-switcher. It touches every store method and op, so do it on its own branch with a
-backward-compatible additive migration (existing data becomes the default map).
+- `maps` table (default `World Map`, id 1); `map_id` column on
+  hexes/features/meta/ops/undo. Migration in `MapStore._migrate` rebuilds the
+  old single-map `hexes`/`meta` tables to carry `map_id` and adopts all existing
+  rows under map 1 — backward compatible and non-destructive.
+- Per-map version counters (`store.versions[map_id]`) so a client only resyncs
+  when its own map changes. WebSocket **rooms**: `hub.rooms[ws]` tracks the map a
+  connection is viewing; edits/cursors/pings/presence broadcast only within that
+  room. Ops carry no client-supplied `map_id` — the server uses the connection's
+  room (authoritative).
+- New ops: `switch_map`, and DM-only `create_map`/`rename_map`/`delete_map`
+  (handled in `handle_map_admin`, not `apply_op`). Deleting a map bounces its
+  viewers back to the World Map.
+- Client: Maps section (switcher + DM new/rename/delete). Export/import/resync/
+  history all carry `?map_id=`.
+
+## Ideas beyond the original backlog
+
+Nothing on the 27-item list remains. Natural follow-ups if the group asks:
+per-map fog defaults, a "duplicate map" action, drag-reorder of the map list,
+or dungeon-scale tooling (smaller hexes / square grid option).
 
 ## Gotchas learned the hard way
 
