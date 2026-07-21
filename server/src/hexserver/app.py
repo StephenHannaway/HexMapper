@@ -323,6 +323,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "kind",
                                 "id",
                                 "label",
+                                "clear",
                             )
                             if k in msg
                         },
@@ -479,6 +480,14 @@ def apply_op(
             "edited_by": author,
         }
     if op == "set_party":
+        if msg.get("clear"):
+            store.clear_party(author, map_id)
+            return {
+                "type": "op",
+                "op": "set_party",
+                "version": v(map_id),
+                "clear": True,
+            }
         q, r = int(msg["q"]), int(msg["r"])
         store.set_party(q, r, author, map_id)
         return {

@@ -402,9 +402,13 @@ class MapStore:
         before = {
             "hexes": self._all_hex_rows(map_id),
             "features": self.features(map_id),
+            "party": self.party(map_id),
         }
         self.db.execute("DELETE FROM hexes WHERE map_id = ?", (map_id,))
         self.db.execute("DELETE FROM features WHERE map_id = ?", (map_id,))
+        self.db.execute(
+            "DELETE FROM meta WHERE map_id = ? AND key = 'party'", (map_id,)
+        )
         self.db.execute(
             "INSERT INTO hexes (map_id, q, r, terrain, icon) "
             "VALUES (?, 0, 0, 'FOG', NULL)",
@@ -485,6 +489,19 @@ class MapStore:
         self.db.commit()
         self._push_undo(
             map_id, author, "move party", {"kind": "set_party", "party": prior}
+        )
+        self._bump(map_id)
+
+    def clear_party(
+        self, author: str = "someone", map_id: int = DEFAULT_MAP_ID
+    ) -> None:
+        prior = self.party(map_id)
+        self.db.execute(
+            "DELETE FROM meta WHERE map_id = ? AND key = 'party'", (map_id,)
+        )
+        self.db.commit()
+        self._push_undo(
+            map_id, author, "clear party", {"kind": "set_party", "party": prior}
         )
         self._bump(map_id)
 
@@ -684,6 +701,12 @@ class MapStore:
         elif kind == "restore_all":
             self.db.execute("DELETE FROM hexes WHERE map_id = ?", (map_id,))
             self.db.execute("DELETE FROM features WHERE map_id = ?", (map_id,))
+            self.db.execute(
+                "DELETE FROM meta WHERE map_id = ? AND key = 'party'", (map_id,)
+            )
+            party = inv["data"].get("party")
+            if party is not None:
+                self._set_meta(map_id, "party", json.dumps(party))
             for row_ in inv["data"]["hexes"]:
                 self._restore_hex(map_id, row_)
             for f in inv["data"]["features"]:
