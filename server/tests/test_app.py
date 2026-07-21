@@ -518,3 +518,74 @@ def test_delete_map_strands_none(client: TestClient) -> None:
         bounced = recv(ws, type="snapshot", action="map_deleted")
         assert bounced["map_id"] == 1
     assert not app_module.store.map_exists(2)
+
+
+# --- brush batches (paint_hexes / remove_hexes) ---
+
+
+def test_paint_hexes_broadcasts_full_rows(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert recv(ws, type="snapshot")
+        ws.send_json(
+            {"op": "paint_hexes", "terrain": "FOREST", "hexes": [[0, 0], [1, 0]]}
+        )
+        msg = recv(ws, op="paint_hexes")
+    assert msg["count"] == 2
+    assert {(h["q"], h["r"]) for h in msg["hexes"]} == {(0, 0), (1, 0)}
+    assert all(h["terrain"] == "FOREST" for h in msg["hexes"])
+    assert app_module.store.count() == 2
+
+
+def test_paint_hexes_rejects_oversized_batch(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert recv(ws, type="snapshot")
+        ws.send_json(
+            {
+                "op": "paint_hexes",
+                "terrain": "FOREST",
+                "hexes": [[q, 0] for q in range(129)],
+            }
+        )
+        msg = recv(ws, type="error")
+    assert "128" in str(msg["detail"])
+    assert app_module.store.count() == 0
+
+
+def test_remove_hexes_broadcasts_removed_coords(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOREST")
+    app_module.store.set_hex(1, 0, "OCEAN")
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert recv(ws, type="snapshot")
+        ws.send_json({"op": "remove_hexes", "hexes": [[0, 0], [1, 0], [9, 9]]})
+        msg = recv(ws, op="remove_hexes")
+    assert msg["count"] == 2
+    assert sorted(msg["hexes"]) == [[0, 0], [1, 0]]
+    assert app_module.store.count() == 0
+
+
+def test_batch_ops_logged_with_count(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert recv(ws, type="snapshot")
+        ws.send_json(
+            {"op": "paint_hexes", "terrain": "DESERT", "hexes": [[0, 0], [1, 0]]}
+        )
+        recv(ws, op="paint_hexes")
+    ops = client.get("/api/history", headers=PLAYER).json()["ops"]
+    top = ops[0]
+    assert top["op"] == "paint_hexes"
+    assert top["detail"]["count"] == 2
+    assert top["detail"]["terrain"] == "DESERT"
+
+
+def test_dm_undo_reverts_whole_brush_stamp(client: TestClient) -> None:
+    app_module.store.set_hex(0, 0, "FOG")
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert recv(ws, type="snapshot")
+        ws.send_json(
+            {"op": "paint_hexes", "terrain": "FOREST", "hexes": [[0, 0], [1, 0]]}
+        )
+        recv(ws, op="paint_hexes")
+        ws.send_json({"op": "undo"})
+        snap = recv(ws, type="snapshot", action="undo")
+    hexes = {(h["q"], h["r"]): h["terrain"] for h in snap["hexes"]}
+    assert hexes == {(0, 0): "FOG"}

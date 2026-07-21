@@ -39,6 +39,8 @@
   }
   button.active .kb { color: #e8c0c0; }
   .span2 { grid-column: 1 / -1; }
+  #brushBtns { display: flex; gap: 4px; }
+  #brushBtns button { width: 32px; padding: 5px 0; font-size: 12px; }
   #terrainGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
   #terrainGrid button { padding: 0; height: 26px; border-radius: 4px; }
   #terrainGrid button.selected { outline: 2px solid #fff; }
@@ -145,6 +147,12 @@
       <button id="revealBtn" class="dm-only">Reveal<span class="kb">—</span></button>
       <button id="removeBtn">Remove<span class="kb">R</span></button>
     </div>
+    <label class="field">Brush size<span id="brushBtns">
+      <button data-size="1" class="active">1</button>
+      <button data-size="2">2</button>
+      <button data-size="3">3</button>
+      <button data-size="4">4</button>
+    </span></label>
 
     <h2>Map actions</h2>
     <div id="mapGrid">
@@ -200,7 +208,8 @@
     <div class="helpRow"><kbd>wheel</kbd><kbd>pinch</kbd><kbd>+</kbd><kbd>−</kbd><span>zoom</span></div>
     <div class="helpRow">double-click<span>ping a hex for everyone</span></div>
     <div class="helpRow"><kbd>O</kbd><kbd>V</kbd><span>road / river: click waypoints, Enter builds, Shift-click removes</span></div>
-    <div class="helpRow"><kbd>R</kbd><span>remove: deletes a road/river under the cursor, else the hex</span></div>
+    <div class="helpRow"><kbd>R</kbd><span>remove: deletes a road/river under the cursor, else hexes — drag to erase</span></div>
+    <div class="helpRow"><kbd>[</kbd><kbd>]</kbd><span>brush size — paint &amp; remove up to 37 hexes at once</span></div>
     <div class="helpRow"><kbd>T</kbd><span>measure: click start then end hex</span></div>
     <div class="helpRow"><kbd>Ctrl</kbd>+<kbd>Z</kbd><span>undo last edit (DM)</span></div>
     <div class="helpRow"><kbd>Esc</kbd><span>close panels / cancel a draft</span></div>
