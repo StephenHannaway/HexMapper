@@ -40,6 +40,8 @@ const state = {
   featureCosts: null,
   draft: null, // {kind, waypoints: [[q,r],...], preview: [[q,r],...]}
   canUndo: false,
+  mapId: 1,
+  maps: [{ id: 1, name: "World Map" }],
   measure: null, // {a: [q,r], b: [q,r]|null, path: [[q,r]...], dist, days, roadDays}
   // display preferences (persisted)
   lightBg: prefs.lightBg ?? false,
@@ -483,7 +485,10 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === "snapshot") {
       const firstLoad = !state.hadSnapshot;
+      const mapChanged = msg.map_id !== undefined && msg.map_id !== state.mapId;
       state.hadSnapshot = true;
+      if (msg.map_id !== undefined) state.mapId = msg.map_id;
+      if (msg.maps) { state.maps = msg.maps; renderMaps(); }
       state.hexes.clear();
       msg.hexes.forEach(applyHex);
       state.party = msg.party || null;
@@ -491,16 +496,24 @@ function connect() {
       state.features.clear();
       (msg.features || []).forEach((f) => state.features.set(f.id, f));
       state.canUndo = !!msg.can_undo;
+      if (state.measure) clearMeasure();
       updateFogBtn();
       updateUndoBtn();
-      if (state.measure) computeMeasure();
       state.version = msg.version;
-      if (firstLoad) fitView();
+      if (firstLoad || mapChanged) fitView();
+      if (mapChanged) { historyEntries.length = 0; loadHistory(); }
       if (msg.action === "undo") toast(`Undid: ${msg.undo_label}`);
-      if (msg.action) {
+      if (msg.action === "map_deleted") toast("That map was deleted — back on the World Map");
+      if (msg.action && msg.action !== "map_deleted") {
         addHistory({
           ts: Date.now() / 1000, player: msg.by || "someone", op: msg.action, detail: {},
         });
+      }
+    } else if (msg.type === "maps") {
+      state.maps = msg.maps;
+      renderMaps();
+      if (!state.maps.some((m) => m.id === state.mapId)) {
+        send({ op: "switch_map", map_id: 1 }); // our map vanished
       }
     } else if (msg.type === "op") {
       if (msg.version > state.version + 1) resync(); // missed a broadcast
@@ -592,7 +605,9 @@ async function resync() {
   if (resyncing) return;
   resyncing = true;
   try {
-    const snap = await (await fetch("/api/map")).json();
+    const snap = await (await fetch(`/api/map?map_id=${state.mapId}`)).json();
+    if (snap.map_id !== undefined) state.mapId = snap.map_id;
+    if (snap.maps) { state.maps = snap.maps; renderMaps(); }
     state.hexes.clear();
     snap.hexes.forEach(applyHex);
     state.party = snap.party || null;
@@ -1294,6 +1309,69 @@ daysPerHex.onchange = () => {
   savePrefs();
   computeMeasure();
 };
+
+// --- maps switcher (item 12) ---
+const mapSelect = document.getElementById("mapSelect");
+const mapNameInput = document.getElementById("mapNameInput");
+function renderMaps() {
+  mapSelect.innerHTML = state.maps
+    .map(
+      (m) =>
+        `<option value="${m.id}"${m.id === state.mapId ? " selected" : ""}>` +
+        `${esc(m.name)}</option>`
+    )
+    .join("");
+}
+mapSelect.onchange = () => {
+  const id = +mapSelect.value;
+  if (id !== state.mapId) send({ op: "switch_map", map_id: id });
+};
+document.getElementById("mapNewBtn").onclick = () => {
+  send({ op: "create_map", name: mapNameInput.value.trim() || "New Map" });
+  mapNameInput.value = "";
+};
+document.getElementById("mapRenameBtn").onclick = () => {
+  const name = mapNameInput.value.trim();
+  if (!name) {
+    toast("Type the new name first");
+    return;
+  }
+  send({ op: "rename_map", map_id: state.mapId, name });
+  mapNameInput.value = "";
+};
+let mapDeleteArmed = false;
+const mapDeleteBtn = document.getElementById("mapDeleteBtn");
+mapDeleteBtn.onclick = () => {
+  if (state.mapId === 1) {
+    toast("The World Map can't be deleted");
+    return;
+  }
+  if (!mapDeleteArmed) {
+    mapDeleteArmed = true;
+    mapDeleteBtn.textContent = "Sure?";
+    mapDeleteBtn.classList.add("active");
+    setTimeout(() => {
+      mapDeleteArmed = false;
+      mapDeleteBtn.textContent = "Delete";
+      mapDeleteBtn.classList.remove("active");
+    }, 3000);
+    return;
+  }
+  mapDeleteArmed = false;
+  mapDeleteBtn.textContent = "Delete";
+  mapDeleteBtn.classList.remove("active");
+  send({ op: "delete_map", map_id: state.mapId });
+};
+
+function loadHistory() {
+  fetch(`/api/history?map_id=${state.mapId}`)
+    .then((r) => r.json())
+    .then((h) => {
+      historyEntries.length = 0;
+      historyEntries.push(...h.ops);
+      renderHistory();
+    });
+}
 document.getElementById("removeBtn").onclick = () => setTool("remove");
 document.getElementById("layerBtn").onclick = () =>
   send({ op: "add_layer", terrain: state.terrain });
@@ -1378,7 +1456,7 @@ gotoInput.onchange = () => {
 };
 document.getElementById("exportBtn").onclick = () => {
   const a = document.createElement("a");
-  a.href = "/api/map/export";
+  a.href = `/api/map/export?map_id=${state.mapId}`;
   a.download = "world.hexmap";
   a.click();
 };
@@ -1395,7 +1473,7 @@ importInput.onchange = async () => {
     toast("Not a valid .hexmap file");
     return;
   }
-  const res = await fetch("/api/map/import", {
+  const res = await fetch(`/api/map/import?map_id=${state.mapId}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(data),
@@ -1476,15 +1554,10 @@ async function init() {
 
   state.offsetX = canvas.clientWidth * devicePixelRatio / 2;
   state.offsetY = canvas.clientHeight * devicePixelRatio / 2;
+  renderMaps();
   resize();
   connect();
-
-  fetch("/api/history")
-    .then((r) => r.json())
-    .then((h) => {
-      historyEntries.push(...h.ops);
-      renderHistory();
-    });
+  loadHistory();
 }
 
 window.addEventListener("resize", resize);
