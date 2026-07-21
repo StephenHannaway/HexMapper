@@ -64,6 +64,11 @@
   #measureReadout { font-size: 12px; color: #7ec8ff; min-height: 15px; }
   #gotoInput { padding: 5px 8px; font-size: 12px; cursor: text; width: 100%; }
   #nameInput { width: 100%; }
+  #mapSelect { width: 100%; }
+  #mapAdmin { display: flex; flex-direction: column; gap: 5px; }
+  #mapAdmin input { width: 100%; padding: 6px 8px; font-size: 12px; cursor: text; }
+  #mapAdminBtns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
+  #mapAdminBtns button { padding: 7px 4px; font-size: 12px; }
   #minimap { position: fixed; right: 252px; bottom: 12px; width: 168px; height: 128px;
     background: #16161acc; border: 1px solid #3a3a42; border-radius: 6px;
     cursor: pointer; display: block; }
@@ -106,6 +111,17 @@
   <div id="sidebar">
     <div id="titleRow"><h1>Shared World Map</h1></div>
 
+    <h2>Maps</h2>
+    <select id="mapSelect"></select>
+    <div id="mapAdmin" class="dm-only">
+      <input id="mapNameInput" type="text" maxlength="60" placeholder="map name…">
+      <div id="mapAdminBtns">
+        <button id="mapNewBtn">+ New</button>
+        <button id="mapRenameBtn">Rename</button>
+        <button id="mapDeleteBtn">Delete</button>
+      </div>
+    </div>
+
     <h2>Terrain</h2>
     <div id="terrainGrid"></div>
 
@@ -126,7 +142,7 @@
       <button id="removeBtn">Remove<span class="kb">R</span></button>
     </div>
 
-    <h2>Map</h2>
+    <h2>Map actions</h2>
     <div id="mapGrid">
       <button id="centerBtn">Centre<span class="kb">C</span></button>
       <button id="layerBtn">Add ring<span class="kb">&nbsp;</span></button>

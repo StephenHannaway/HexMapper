@@ -10,6 +10,18 @@ PLAYER = {"cookie": "mapkey=player-key"}
 DM = {"cookie": "mapkey=dm-key"}
 
 
+def recv(ws: object, **match: object) -> dict[str, object]:
+    """Read messages until one matches every key/value in ``match``.
+
+    Presence/maps broadcasts interleave with ops, so tests skip past them.
+    """
+    for _ in range(50):
+        msg = ws.receive_json()  # type: ignore[attr-defined]
+        if all(msg.get(k) == v for k, v in match.items()):
+            return msg  # type: ignore[no-any-return]
+    raise AssertionError(f"no message matched {match}")
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(app_module, "store", MapStore(Path(":memory:")))
@@ -218,12 +230,12 @@ def test_set_party_broadcasts(client: TestClient) -> None:
 def test_ping_is_ephemeral(client: TestClient) -> None:
     with client.websocket_connect("/ws", headers=PLAYER) as ws:
         assert ws.receive_json()["type"] == "snapshot"
-        before = app_module.store.version
+        before = app_module.store.version_of(1)
         ws.send_json({"op": "ping", "q": 5, "r": -3})
         msg = ws.receive_json()
         assert msg["type"] == "ping"
         assert (msg["q"], msg["r"]) == (5, -3)
-    assert app_module.store.version == before
+    assert app_module.store.version_of(1) == before
     assert app_module.store.history(10) == []
 
 
@@ -265,7 +277,7 @@ def test_cursor_broadcast_excludes_sender(client: TestClient) -> None:
         ws1.send_json({"op": "hello", "name": "steph"})
         assert ws1.receive_json()["type"] == "presence"
         assert ws2.receive_json()["type"] == "presence"
-        before = app_module.store.version
+        before = app_module.store.version_of(1)
         ws1.send_json({"op": "cursor", "q": 3, "r": 4})
         msg = ws2.receive_json()
         assert msg["type"] == "cursor"
@@ -274,7 +286,7 @@ def test_cursor_broadcast_excludes_sender(client: TestClient) -> None:
         # the sender gets no echo: next thing ws1 sees is the ping, not a cursor
         ws1.send_json({"op": "ping", "q": 0, "r": 0})
         assert ws1.receive_json()["type"] == "ping"
-    assert app_module.store.version == before
+    assert app_module.store.version_of(1) == before
     assert app_module.store.history(10) == []
 
 
@@ -417,3 +429,84 @@ def test_rate_limit_drops_flood_and_asks_resync(client: TestClient) -> None:
                 saw_resync = True
                 break
         assert saw_resync
+
+
+# --- multiple maps (item 12) ---
+
+
+def test_snapshot_lists_maps(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        snap = ws.receive_json()
+        assert snap["map_id"] == 1
+        assert snap["maps"] == [{"id": 1, "name": "World Map"}]
+
+
+def test_dm_create_map_moves_creator(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "create_map", "name": "Dungeon"})
+        maps_msg = ws.receive_json()
+        assert maps_msg["type"] == "maps"
+        assert any(m["name"] == "Dungeon" for m in maps_msg["maps"])
+        snap = ws.receive_json()
+        assert snap["type"] == "snapshot"
+        assert snap["map_id"] == 2  # creator switched into the new map
+
+
+def test_player_cannot_create_map(client: TestClient) -> None:
+    with client.websocket_connect("/ws", headers=PLAYER) as ws:
+        assert ws.receive_json()["type"] == "snapshot"
+        ws.send_json({"op": "create_map", "name": "Nope"})
+        assert ws.receive_json()["type"] == "error"
+    assert app_module.store.maps() == [{"id": 1, "name": "World Map"}]
+
+
+def test_switch_map_returns_target_snapshot(client: TestClient) -> None:
+    app_module.store.create_map("Cave")
+    app_module.store.set_hex(5, 5, "LAKE", "a", map_id=2)
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert ws.receive_json()["map_id"] == 1
+        ws.send_json({"op": "switch_map", "map_id": 2})
+        snap = ws.receive_json()
+        assert snap["type"] == "snapshot"
+        assert snap["map_id"] == 2
+        assert any(h["q"] == 5 and h["r"] == 5 for h in snap["hexes"])
+
+
+def test_edits_isolated_between_rooms(client: TestClient) -> None:
+    app_module.store.create_map("Cave")
+    with (
+        client.websocket_connect("/ws", headers=DM) as a,
+        client.websocket_connect("/ws", headers=DM) as b,
+    ):
+        assert recv(a, type="snapshot")["map_id"] == 1
+        assert recv(b, type="snapshot")["map_id"] == 1
+        # move b to map 2
+        b.send_json({"op": "switch_map", "map_id": 2})
+        assert recv(b, type="snapshot")["map_id"] == 2
+        # a edits map 1; b (on map 2) must NOT receive that op
+        a.send_json({"op": "set_hex", "q": 0, "r": 0, "terrain": "FOREST"})
+        assert recv(a, op="set_hex")["q"] == 0
+        # b edits map 2; only b's own broadcast comes back
+        b.send_json({"op": "set_hex", "q": 1, "r": 1, "terrain": "DESERT"})
+        assert recv(b, op="set_hex")["q"] == 1
+    assert any(
+        h["q"] == 1 and h["r"] == 1 for h in app_module.store.snapshot(2)["hexes"]
+    )
+    # map 1 never got the (1,1) DESERT hex
+    assert not any(
+        h["q"] == 1 and h["r"] == 1 for h in app_module.store.snapshot(1)["hexes"]
+    )
+
+
+def test_delete_map_strands_none(client: TestClient) -> None:
+    app_module.store.create_map("Temp")
+    with client.websocket_connect("/ws", headers=DM) as ws:
+        assert recv(ws, type="snapshot")["map_id"] == 1
+        ws.send_json({"op": "switch_map", "map_id": 2})
+        assert recv(ws, type="snapshot")["map_id"] == 2
+        # delete the map we're viewing -> we get bounced back to the default map
+        ws.send_json({"op": "delete_map", "map_id": 2})
+        bounced = recv(ws, type="snapshot", action="map_deleted")
+        assert bounced["map_id"] == 1
+    assert not app_module.store.map_exists(2)

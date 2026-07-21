@@ -79,24 +79,44 @@ class KeyGateMiddleware(BaseHTTPMiddleware):
 app.add_middleware(KeyGateMiddleware)
 
 
+DEFAULT_MAP_ID = 1
+
+
 class Hub:
     def __init__(self) -> None:
         self.clients: dict[WebSocket, str] = {}
+        self.rooms: dict[WebSocket, int] = {}  # ws -> map_id it is viewing
+
+    def room(self, ws: WebSocket) -> int:
+        return self.rooms.get(ws, DEFAULT_MAP_ID)
 
     async def broadcast(
-        self, message: dict[str, Any], exclude: WebSocket | None = None
+        self, message: dict[str, Any], map_id: int, exclude: WebSocket | None = None
     ) -> None:
+        # only clients viewing this map hear about its edits
         payload = json.dumps(message)
         for ws in list(self.clients):
-            if ws is exclude:
+            if ws is exclude or self.rooms.get(ws) != map_id:
                 continue
             try:
                 await ws.send_text(payload)
             except Exception:
                 self.clients.pop(ws, None)
+                self.rooms.pop(ws, None)
 
-    def names(self) -> list[str]:
-        return sorted(self.clients.values())
+    async def broadcast_all(self, message: dict[str, Any]) -> None:
+        payload = json.dumps(message)
+        for ws in list(self.clients):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self.clients.pop(ws, None)
+                self.rooms.pop(ws, None)
+
+    def names(self, map_id: int) -> list[str]:
+        return sorted(
+            n for ws, n in self.clients.items() if self.rooms.get(ws) == map_id
+        )
 
 
 hub = Hub()
@@ -123,25 +143,27 @@ async def get_config(request: Request) -> JSONResponse:
 
 
 @app.get("/api/map")
-async def get_map() -> JSONResponse:
+async def get_map(map_id: int = DEFAULT_MAP_ID) -> JSONResponse:
     async with lock:
-        return JSONResponse(store.snapshot())
+        if not store.map_exists(map_id):
+            map_id = DEFAULT_MAP_ID
+        return JSONResponse(store.snapshot(map_id))
 
 
 @app.get("/api/map/export")
-async def export_map() -> JSONResponse:
+async def export_map(map_id: int = DEFAULT_MAP_ID) -> JSONResponse:
     async with lock:
-        return JSONResponse(store.export_hexmap())
+        return JSONResponse(store.export_hexmap(map_id))
 
 
 @app.get("/api/history")
-async def get_history(limit: int = 50) -> JSONResponse:
+async def get_history(limit: int = 50, map_id: int = DEFAULT_MAP_ID) -> JSONResponse:
     async with lock:
-        return JSONResponse({"ops": store.history(min(limit, 200))})
+        return JSONResponse({"ops": store.history(min(limit, 200), map_id)})
 
 
 @app.post("/api/map/import")
-async def import_map(request: Request) -> JSONResponse:
+async def import_map(request: Request, map_id: int = DEFAULT_MAP_ID) -> JSONResponse:
     role = role_for(request.cookies.get("mapkey"), request.query_params.get("key"))
     if role != "dm":
         return JSONResponse({"detail": "Only the DM can import a map"}, status_code=403)
@@ -155,13 +177,62 @@ async def import_map(request: Request) -> JSONResponse:
             {"detail": "not a .hexmap file (no hexes)"}, status_code=400
         )
     async with lock:
-        store.import_hexmap(data)
-        store.log_op("the DM", "import", {"hexes": len(hexes)})
-        snap = store.snapshot()
+        if not store.map_exists(map_id):
+            map_id = DEFAULT_MAP_ID
+        store.import_hexmap(data, map_id)
+        store.log_op("the DM", "import", {"hexes": len(hexes)}, map_id)
+        snap = store.snapshot(map_id)
     await hub.broadcast(
-        {"type": "snapshot", "action": "import", "by": "the DM", **snap}
+        {"type": "snapshot", "action": "import", "by": "the DM", **snap}, map_id
     )
     return JSONResponse({"ok": True, "hexes": len(snap["hexes"])})
+
+
+MAP_ADMIN_OPS = {"create_map", "rename_map", "delete_map"}
+
+
+async def handle_map_admin(ws: WebSocket, op: str, msg: dict[str, Any]) -> None:
+    async with lock:
+        if op == "create_map":
+            new = store.create_map(str(msg.get("name") or "New Map"))
+            maps = store.maps()
+        elif op == "rename_map":
+            store.rename_map(int(msg["map_id"]), str(msg.get("name") or "Map"))
+            maps = store.maps()
+        else:  # delete_map
+            target = int(msg["map_id"])
+            store.delete_map(target)
+            maps = store.maps()
+    await hub.broadcast_all({"type": "maps", "maps": maps})
+    if op == "create_map":
+        # move the creator straight into the new map
+        await switch_to(ws, int(new["id"]))
+    elif op == "delete_map":
+        # anyone viewing the deleted map falls back to the default map
+        stranded = [w for w in hub.clients if hub.rooms.get(w) == int(msg["map_id"])]
+        for w in stranded:
+            await switch_to(w, DEFAULT_MAP_ID, action="map_deleted")
+
+
+async def switch_to(ws: WebSocket, map_id: int, action: str | None = None) -> None:
+    old = hub.room(ws)
+    async with lock:
+        if not store.map_exists(map_id):
+            map_id = DEFAULT_MAP_ID
+        snap = store.snapshot(map_id)
+    hub.rooms[ws] = map_id
+    payload = {"type": "snapshot", **snap}
+    if action:
+        payload["action"] = action
+    try:
+        await ws.send_text(json.dumps(payload))
+    except Exception:
+        hub.clients.pop(ws, None)
+        hub.rooms.pop(ws, None)
+        return
+    if old != map_id:
+        await hub.broadcast({"type": "presence", "users": hub.names(old)}, old)
+    await hub.broadcast({"type": "presence", "users": hub.names(map_id)}, map_id)
 
 
 @app.websocket("/ws")
@@ -172,14 +243,18 @@ async def ws_endpoint(ws: WebSocket) -> None:
         return
     await ws.accept()
     hub.clients[ws] = "anonymous"
+    hub.rooms[ws] = DEFAULT_MAP_ID
     limiter = RateLimiter(RATE_BURST, RATE_PER_SEC)
     try:
         async with lock:
-            await ws.send_text(json.dumps({"type": "snapshot", **store.snapshot()}))
+            await ws.send_text(
+                json.dumps({"type": "snapshot", **store.snapshot(DEFAULT_MAP_ID)})
+            )
         while True:
             msg = json.loads(await ws.receive_text())
             op = msg.get("op")
             author = hub.clients.get(ws, "anonymous")
+            room = hub.room(ws)
             if not limiter.allow():
                 if op != "cursor":
                     # tell the client to resnapshot so a dropped edit can't diverge
@@ -197,12 +272,36 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     continue
                 await hub.broadcast(
                     {"type": "cursor", "q": cq, "r": cr, "by": author, "cid": id(ws)},
+                    room,
                     exclude=ws,
                 )
                 continue
+            if op == "hello":
+                hub.clients[ws] = str(msg.get("name") or "anonymous")[:32]
+                await hub.broadcast(
+                    {"type": "presence", "users": hub.names(room)}, room
+                )
+                continue
+            if op == "switch_map":
+                await switch_to(ws, int(msg.get("map_id", DEFAULT_MAP_ID)))
+                continue
+            if op in MAP_ADMIN_OPS:
+                if role != "dm":
+                    await ws.send_text(
+                        json.dumps(
+                            {"type": "error", "detail": "Only the DM can manage maps"}
+                        )
+                    )
+                    continue
+                try:
+                    await handle_map_admin(ws, op, msg)
+                except Exception as e:
+                    logger.exception("map admin failed: %s", msg)
+                    await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
+                continue
             async with lock:
                 try:
-                    out = apply_op(op, msg, role, author)
+                    out = apply_op(op, msg, role, author, room)
                 except Exception as e:
                     logger.exception("op failed: %s", msg)
                     await ws.send_text(json.dumps({"type": "error", "detail": str(e)}))
@@ -227,17 +326,17 @@ async def ws_endpoint(ws: WebSocket) -> None:
                             )
                             if k in msg
                         },
+                        room,
                     )
-            if op == "hello":
-                hub.clients[ws] = str(msg.get("name") or "anonymous")[:32]
-                await hub.broadcast({"type": "presence", "users": hub.names()})
-            elif out is not None:
-                await hub.broadcast(out)
+            if out is not None:
+                await hub.broadcast(out, room)
     except WebSocketDisconnect:
         pass
     finally:
+        room = hub.room(ws)
         hub.clients.pop(ws, None)
-        await hub.broadcast({"type": "presence", "users": hub.names()})
+        hub.rooms.pop(ws, None)
+        await hub.broadcast({"type": "presence", "users": hub.names(room)}, room)
 
 
 DM_OPS = {"clear_all", "set_explored", "set_fog", "undo"}
@@ -267,14 +366,14 @@ class RateLimiter:
 
 
 def plan_feature_path(
-    kind: str, waypoints: list[tuple[int, int]]
+    kind: str, waypoints: list[tuple[int, int]], map_id: int
 ) -> list[tuple[int, int]]:
     if not 2 <= len(waypoints) <= 12:
         raise ValueError("need 2-12 waypoints")
-    terrain = store.terrain_map()
+    terrain = store.terrain_map(map_id)
     occupied = {
         (int(q), int(r))
-        for f in store.features()
+        for f in store.features(map_id)
         if f["kind"] == kind
         for q, r in f["path"]
     }
@@ -289,21 +388,22 @@ def plan_feature_path(
 
 
 def apply_op(
-    op: str | None, msg: dict[str, Any], role: str, author: str
+    op: str | None, msg: dict[str, Any], role: str, author: str, map_id: int
 ) -> dict[str, Any] | None:
     if op in DM_OPS and role != "dm":
         raise PermissionError("Only the DM can do that")
+    v = store.version_of
     if op == "hello":
         return None
     if op == "ping":
         return {"type": "ping", "q": int(msg["q"]), "r": int(msg["r"]), "by": author}
     if op == "set_hex":
         q, r, terrain = int(msg["q"]), int(msg["r"]), str(msg["terrain"])
-        store.set_hex(q, r, terrain, author)
+        store.set_hex(q, r, terrain, author, map_id)
         return {
             "type": "op",
             "op": "set_hex",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
             "terrain": terrain,
@@ -312,11 +412,11 @@ def apply_op(
     if op == "set_icon":
         q, r = int(msg["q"]), int(msg["r"])
         icon = msg.get("icon")
-        store.set_icon(q, r, icon, author)
+        store.set_icon(q, r, icon, author, map_id)
         return {
             "type": "op",
             "op": "set_icon",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
             "icon": icon,
@@ -324,22 +424,22 @@ def apply_op(
         }
     if op == "remove_hex":
         q, r = int(msg["q"]), int(msg["r"])
-        store.remove_hex(q, r, author)
+        store.remove_hex(q, r, author, map_id)
         return {
             "type": "op",
             "op": "remove_hex",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
         }
     if op == "set_note":
         q, r = int(msg["q"]), int(msg["r"])
         note = str(msg.get("note") or "")[:2000]
-        result = store.set_note(q, r, note, author)
+        result = store.set_note(q, r, note, author, map_id)
         return {
             "type": "op",
             "op": "set_note",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
             "edited_by": author,
@@ -348,31 +448,31 @@ def apply_op(
     if op == "set_explored":
         q, r = int(msg["q"]), int(msg["r"])
         explored = bool(msg["explored"])
-        store.set_explored(q, r, explored, author)
+        store.set_explored(q, r, explored, author, map_id)
         return {
             "type": "op",
             "op": "set_explored",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
             "explored": explored,
         }
     if op == "set_fog":
         enabled = bool(msg["enabled"])
-        store.set_fog(enabled, author)
+        store.set_fog(enabled, author, map_id)
         return {
             "type": "op",
             "op": "set_fog",
-            "version": store.version,
+            "version": v(map_id),
             "enabled": enabled,
         }
     if op == "set_label":
         q, r = int(msg["q"]), int(msg["r"])
-        label = store.set_label(q, r, str(msg.get("label") or "")[:40], author)
+        label = store.set_label(q, r, str(msg.get("label") or "")[:40], author, map_id)
         return {
             "type": "op",
             "op": "set_label",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
             "label": label,
@@ -380,54 +480,54 @@ def apply_op(
         }
     if op == "set_party":
         q, r = int(msg["q"]), int(msg["r"])
-        store.set_party(q, r, author)
+        store.set_party(q, r, author, map_id)
         return {
             "type": "op",
             "op": "set_party",
-            "version": store.version,
+            "version": v(map_id),
             "q": q,
             "r": r,
         }
     if op == "add_feature":
         kind = str(msg["kind"])
         waypoints = [(int(q), int(r)) for q, r in msg["waypoints"]]
-        routed = plan_feature_path(kind, waypoints)
-        feature = store.add_feature(kind, routed, author)
+        routed = plan_feature_path(kind, waypoints, map_id)
+        feature = store.add_feature(kind, routed, author, map_id)
         return {
             "type": "op",
             "op": "add_feature",
-            "version": store.version,
+            "version": v(map_id),
             "feature": feature,
         }
     if op == "remove_feature":
         fid = int(msg["id"])
-        store.remove_feature(fid, author)
+        store.remove_feature(fid, author, map_id)
         return {
             "type": "op",
             "op": "remove_feature",
-            "version": store.version,
+            "version": v(map_id),
             "id": fid,
         }
     if op == "add_layer":
-        added = store.add_layer(str(msg["terrain"]), author)
+        added = store.add_layer(str(msg["terrain"]), author, map_id)
         return {
             "type": "op",
             "op": "apply_hexes",
-            "version": store.version,
+            "version": v(map_id),
             "hexes": added,
         }
     if op == "clear_all":
-        store.clear_all(author)
-        return {"type": "snapshot", "action": "clear_all", **store.snapshot()}
+        store.clear_all(author, map_id)
+        return {"type": "snapshot", "action": "clear_all", **store.snapshot(map_id)}
     if op == "undo":
-        label = store.undo()
+        label = store.undo(map_id)
         if label is None:
             raise ValueError("nothing to undo")
         return {
             "type": "snapshot",
             "action": "undo",
             "undo_label": label,
-            **store.snapshot(),
+            **store.snapshot(map_id),
         }
     raise ValueError(f"unknown op {op!r}")
 

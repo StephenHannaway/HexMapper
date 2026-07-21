@@ -218,10 +218,10 @@ def test_features_at(store: MapStore) -> None:
 
 def test_remove_feature(store: MapStore) -> None:
     f = store.add_feature("road", [(0, 0), (1, 0)], "steph")
-    v = store.version
+    v = store.version_of(1)
     store.remove_feature(f["id"])
     assert store.features() == []
-    assert store.version == v + 1
+    assert store.version_of(1) == v + 1
     with pytest.raises(ValueError, match="no feature"):
         store.remove_feature(f["id"])
 
@@ -301,6 +301,52 @@ def test_label_migration(tmp_path: Path) -> None:
     store = MapStore(db_file)
     store.set_label(0, 0, "migrated")
     assert store.snapshot()["hexes"][0]["label"] == "migrated"
+
+
+def test_multimap_migration_preserves_production_data(tmp_path: Path) -> None:
+    """A batch-2 single-map DB (edited_by, no map_id) migrates to map 1 intact."""
+    import sqlite3
+
+    db_file = tmp_path / "prod.db"
+    con = sqlite3.connect(db_file)
+    con.execute(
+        "CREATE TABLE hexes (q INTEGER, r INTEGER, terrain TEXT, icon TEXT, "
+        "note TEXT, note_author TEXT, explored INTEGER DEFAULT 1, label TEXT, "
+        "edited_by TEXT, PRIMARY KEY (q, r))"
+    )
+    con.execute(
+        "INSERT INTO hexes VALUES (0, 0, 'CITY', 'Temple', 'seat of power', "
+        "'steph', 1, 'Akaford', 'steph')"
+    )
+    con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+    con.execute("INSERT INTO meta VALUES ('party', '{\"q\": 0, \"r\": 0}')")
+    con.execute("INSERT INTO meta VALUES ('fog', '1')")
+    con.execute(
+        "CREATE TABLE features (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, "
+        "path TEXT, created_by TEXT, ts REAL)"
+    )
+    con.execute(
+        "INSERT INTO features (kind, path, created_by, ts) "
+        "VALUES ('road', '[[0,0],[1,0]]', 'steph', 0)"
+    )
+    con.commit()
+    con.close()
+
+    store = MapStore(db_file)
+    assert store.maps() == [{"id": 1, "name": "World Map"}]
+    snap = store.snapshot(1)
+    hexes = {(h["q"], h["r"]): h for h in snap["hexes"]}
+    assert hexes[(0, 0)]["terrain"] == "CITY"
+    assert hexes[(0, 0)]["icon"] == "Temple"
+    assert hexes[(0, 0)]["label"] == "Akaford"
+    assert hexes[(0, 0)]["edited_by"] == "steph"
+    assert snap["party"] == {"q": 0, "r": 0}
+    assert snap["fog"] is True
+    assert snap["features"][0]["kind"] == "road"
+    # a second map is fully independent of the migrated one
+    m = store.create_map("Dungeon")
+    assert store.count(m["id"]) == 1
+    assert store.count(1) == 1
 
 
 def _hex(store: MapStore, q: int, r: int) -> dict[str, object] | None:
@@ -385,3 +431,91 @@ def test_undo_stack_capped_at_100(store: MapStore) -> None:
         store.set_hex(0, 0, "FOREST" if i % 2 else "DESERT", "a")
     rows = store.db.execute("SELECT COUNT(*) FROM undo").fetchone()[0]
     assert rows <= 100
+
+
+# --- multiple maps (item 12) ---
+
+
+def test_default_map_exists(store: MapStore) -> None:
+    maps = store.maps()
+    assert maps == [{"id": 1, "name": "World Map"}]
+
+
+def test_create_map_seeds_a_blank_hex(store: MapStore) -> None:
+    m = store.create_map("Dungeon of Doom")
+    assert m["id"] == 2
+    assert store.count(2) == 1
+    assert store.maps() == [
+        {"id": 1, "name": "World Map"},
+        {"id": 2, "name": "Dungeon of Doom"},
+    ]
+
+
+def test_maps_are_isolated(store: MapStore) -> None:
+    store.set_hex(0, 0, "FOREST", "a", map_id=1)
+    m = store.create_map("Cave")
+    store.set_hex(0, 0, "LAKE", "b", map_id=m["id"])
+    assert _hex_on(store, 1, 0, 0)["terrain"] == "FOREST"  # type: ignore[index]
+    assert _hex_on(store, 2, 0, 0)["terrain"] == "LAKE"  # type: ignore[index]
+    # painting map 2 must not touch map 1's hex
+    assert store.count(1) == 1
+
+
+def test_per_map_versions_independent(store: MapStore) -> None:
+    store.create_map("B")
+    store.set_hex(0, 0, "FOREST", "a", map_id=1)
+    store.set_hex(0, 0, "FOREST", "a", map_id=1)
+    v1, v2 = store.version_of(1), store.version_of(2)
+    assert v1 == 2
+    assert v2 == 0
+
+
+def test_per_map_undo_isolated(store: MapStore) -> None:
+    store.create_map("B")
+    store.set_hex(0, 0, "FOREST", "a", map_id=1)
+    assert store.can_undo(1)
+    assert not store.can_undo(2)
+    # undoing map 2 (empty stack) does nothing to map 1
+    assert store.undo(2) is None
+    assert _hex_on(store, 1, 0, 0)["terrain"] == "FOREST"  # type: ignore[index]
+
+
+def test_per_map_party_and_fog(store: MapStore) -> None:
+    store.create_map("B")
+    store.set_party(3, 3, "a", map_id=1)
+    store.set_fog(True, "a", map_id=2)
+    assert store.party(1) == {"q": 3, "r": 3}
+    assert store.party(2) is None
+    assert store.fog_enabled(2) is True
+    assert store.fog_enabled(1) is False
+
+
+def test_delete_map_removes_its_data(store: MapStore) -> None:
+    m = store.create_map("Temp")
+    store.set_hex(0, 0, "FOREST", "a", map_id=m["id"])
+    store.delete_map(m["id"])
+    assert not store.map_exists(m["id"])
+    assert (
+        store.db.execute(
+            "SELECT COUNT(*) FROM hexes WHERE map_id = ?", (m["id"],)
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_cannot_delete_default_map(store: MapStore) -> None:
+    with pytest.raises(ValueError, match="default map"):
+        store.delete_map(1)
+
+
+def test_rename_map(store: MapStore) -> None:
+    m = store.create_map("Old")
+    store.rename_map(m["id"], "New Name")
+    assert {"id": m["id"], "name": "New Name"} in store.maps()
+
+
+def _hex_on(store: MapStore, map_id: int, q: int, r: int) -> dict[str, object] | None:
+    for h in store.snapshot(map_id)["hexes"]:
+        if h["q"] == q and h["r"] == r:
+            return h
+    return None
