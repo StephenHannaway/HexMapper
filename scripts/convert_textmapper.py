@@ -4,10 +4,10 @@ Source coords are XXYY (column, row), flat-top hexes, even columns shifted
 down (verified against the mountain-chain adjacency in map2.txt). Akaford
 (2377) is anchored at q=0,r=0.
 
-By default a cleanup pass also runs: disconnected border scaffolding is
-dropped, the canal starburst becomes one river plus settlement roads with a
-Bridge at the crossing, and the canvas edge gets a terrain transition ring.
-Pass --raw for the faithful conversion.
+By default a cleanup pass also runs: a canal ring is added around Akaford,
+the ocean border columns are joined across the top (pulled in to ~60 hexes
+north), the void inside the borders is filled with FOG, and the canvas edge
+gets a terrain transition ring. Pass --raw for the faithful conversion.
 
 Usage: uv run python scripts/convert_textmapper.py map2.txt map2.hexmap [--raw]
 """
@@ -60,22 +60,21 @@ FEATURE_KINDS = {
 NEIGHBOURS = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)]
 
 # --- cleanup pass (map2-specific) -------------------------------------------
-# The source map sketched distant borders as disconnected scaffolding: two
-# full-height ocean columns (01/66), a lone ocean hex, and a tail of blank
-# hexes that only existed to carry one canal. The canal starburst from Akaford
-# is replaced with one through-flowing river plus roads between settlements.
+# Akaford is a canal city: all source waterways are kept, and the blue
+# citywalls ellipses become a closed canal ring two hexes out. The ocean
+# border columns are kept but joined across the top at TOP_ROW (~60 hexes
+# north of Akaford instead of the original ~76), and the void inside the
+# borders is filled with FOG so the map is one contiguous canvas.
 
 CANVAS = range(13, 34), range(67, 88)  # cols, rows of the blank working canvas
+TOP_ROW = 17  # northern ocean border, 60 rows out from Akaford
+FILL_COLS, FILL_ROWS = range(2, 66), range(18, 88)
+CANAL_RING_RADIUS = 2
 
-CLEAN_FEATURES = [
-    ("river", "2381-2377-2374-2372-1867"),
-    ("river", "2775-2774-2873-2872"),
-    ("road", "2377-2476-2475-2576-2675-2775-2774"),
-    ("road", "2377-2476-2475-2576-2676-2677-2778-2878"),
-    ("road", "2774-2672"),
-    ("road", "2774-2874"),
-    ("road", "2377-2077-1884"),
+EXTRA_FEATURES = [
+    ("road", "2774-2874"),  # Hommlet -> The Moathouse spur
 ]
+BRIDGE_HEXES = ["2775"]  # Akaford road crossing the Hommlet stream
 
 TRANSITIONS = {
     "MOUNTAIN": "HILLS",
@@ -86,11 +85,17 @@ TRANSITIONS = {
 
 
 def drop_in_cleanup(col: int, row: int, terrain: str) -> bool:
-    if col <= 2 or col >= 66:  # ocean border columns + their shore hexes
-        return True
-    if (col, row) == (5, 55):  # lone stray ocean hex
-        return True
-    return terrain == "FOG" and row >= 88  # canal-carrier tail off the canvas
+    return row < TOP_ROW  # trim ocean columns above the new northern border
+
+
+def hex_ring(radius: int) -> list[tuple[int, int]]:
+    q, r = NEIGHBOURS[4][0] * radius, NEIGHBOURS[4][1] * radius
+    ring: list[tuple[int, int]] = []
+    for dq, dr in NEIGHBOURS:
+        for _ in range(radius):
+            ring.append((q, r))
+            q, r = q + dq, r + dr
+    return ring
 
 
 def to_axial(col: int, row: int) -> tuple[int, int]:
@@ -149,7 +154,7 @@ def convert(text: str, cleanup: bool = True) -> dict[str, Any]:
             kind = m.group(2)
             if kind == "large-lake":
                 lake_paths.append(parse_waypoints(m.group(1)))
-            elif kind in FEATURE_KINDS and not cleanup:
+            elif kind in FEATURE_KINDS:
                 features.append(
                     {
                         "kind": FEATURE_KINDS[kind],
@@ -219,7 +224,17 @@ def convert(text: str, cleanup: bool = True) -> dict[str, Any]:
                 ring["icon_name"] = "Wall"
 
     if cleanup:
-        for kind, spec in CLEAN_FEATURES:
+        # the blue citywalls ellipses were canal rings: one closed canal
+        # loop CANAL_RING_RADIUS hexes out around Akaford
+        ring_path = hex_ring(CANAL_RING_RADIUS)
+        features.append(
+            {
+                "kind": "river",
+                "path": [[q, r] for q, r in [*ring_path, ring_path[0]]],
+                "created_by": "import",
+            }
+        )
+        for kind, spec in EXTRA_FEATURES:
             features.append(
                 {
                     "kind": kind,
@@ -241,21 +256,34 @@ def convert(text: str, cleanup: bool = True) -> dict[str, Any]:
                 pick = max(sorted(set(near)), key=near.count)
                 hexes[(q, r)]["terrain"] = TRANSITIONS.get(pick, pick)
 
-        river_cells = {
-            (p[0], p[1]) for f in features if f["kind"] == "river" for p in f["path"]
-        }
-        for f in features:
-            if f["kind"] != "road":
-                continue
-            for p in f["path"]:
-                crossing = hexes.get((p[0], p[1]))
-                if (
-                    crossing is not None
-                    and (p[0], p[1]) in river_cells
-                    and crossing["terrain"] != "CITY"
-                    and crossing["icon_name"] is None
-                ):
-                    crossing["icon_name"] = "Bridge"
+        # northern ocean border joining the two ocean columns
+        for col in range(1, 67):
+            q, r = to_axial(col, TOP_ROW)
+            hexes.setdefault(
+                (q, r),
+                {"q": q, "r": r, "terrain": "OCEAN", "icon_name": None, "label": None},
+            )
+
+        # contiguous canvas: fill the void inside the borders with FOG
+        for col in FILL_COLS:
+            for row in FILL_ROWS:
+                q, r = to_axial(col, row)
+                hexes.setdefault(
+                    (q, r),
+                    {
+                        "q": q,
+                        "r": r,
+                        "terrain": "FOG",
+                        "icon_name": None,
+                        "label": None,
+                    },
+                )
+
+        for spec in BRIDGE_HEXES:
+            q, r = to_axial(int(spec[:2]), int(spec[2:]))
+            crossing = hexes.get((q, r))
+            if crossing is not None and crossing["icon_name"] is None:
+                crossing["icon_name"] = "Bridge"
 
     ordered = [hexes[k] for k in sorted(hexes)]
     return {"features": features, "hexes": ordered}
