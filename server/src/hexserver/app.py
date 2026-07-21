@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -323,6 +323,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                                 "kind",
                                 "id",
                                 "label",
+                                "clear",
                             )
                             if k in msg
                         },
@@ -479,6 +480,14 @@ def apply_op(
             "edited_by": author,
         }
     if op == "set_party":
+        if msg.get("clear"):
+            store.clear_party(author, map_id)
+            return {
+                "type": "op",
+                "op": "set_party",
+                "version": v(map_id),
+                "clear": True,
+            }
         q, r = int(msg["q"]), int(msg["r"])
         store.set_party(q, r, author, map_id)
         return {
@@ -536,8 +545,15 @@ app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
 
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+async def index() -> HTMLResponse:
+    # Version the app.js URL by its mtime so a deploy is never masked by a
+    # browser-cached copy of the old module.
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    version = str(int((WEB_DIR / "app.js").stat().st_mtime))
+    html = html.replace("/app.js", f"/app.js?v={version}")
+    # never cache the shell itself, so the versioned app.js URL always reaches
+    # the browser and a deploy can't be masked by a cached index.html
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/", StaticFiles(directory=WEB_DIR), name="web")

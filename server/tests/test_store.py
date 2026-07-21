@@ -154,6 +154,32 @@ def test_set_party_and_snapshot(store: MapStore) -> None:
     assert store.snapshot()["party"] == {"q": 4, "r": -2}
 
 
+def test_clear_party(store: MapStore) -> None:
+    store.set_party(1, 1)
+    store.clear_party()
+    assert store.snapshot()["party"] is None
+
+
+def test_undo_clear_party_restores(store: MapStore) -> None:
+    store.set_party(2, 5)
+    store.clear_party()
+    store.undo()
+    assert store.snapshot()["party"] == {"q": 2, "r": 5}
+
+
+def test_clear_all_removes_party(store: MapStore) -> None:
+    store.set_party(1, 1)
+    store.clear_all()
+    assert store.snapshot()["party"] is None
+
+
+def test_undo_clear_all_restores_party(store: MapStore) -> None:
+    store.set_party(2, -3)
+    store.clear_all()
+    store.undo()
+    assert store.snapshot()["party"] == {"q": 2, "r": -3}
+
+
 def test_hexes_default_explored(store: MapStore) -> None:
     store.set_hex(0, 0, "FOG")
     (cell,) = store.snapshot()["hexes"]

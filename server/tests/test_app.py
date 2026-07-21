@@ -40,6 +40,14 @@ def open_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         yield c
 
 
+def test_index_versions_app_js(client: TestClient) -> None:
+    r = client.get("/", headers=DM)
+    assert r.status_code == 200
+    # the app.js module URL is cache-busted so deploys aren't masked by cache
+    assert 'src="/app.js?v=' in r.text
+    assert 'src="/app.js"' not in r.text
+
+
 def test_no_key_rejected(client: TestClient) -> None:
     assert client.get("/api/config").status_code == 403
 

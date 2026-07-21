@@ -15,6 +15,7 @@ function savePrefs() {
       gridStrength: state.gridStrength,
       minimapOn: state.minimapOn,
       daysPerHex: state.daysPerHex,
+      show: state.show,
     })
   );
 }
@@ -49,7 +50,14 @@ const state = {
   gridStrength: prefs.gridStrength ?? 35,
   minimapOn: prefs.minimapOn ?? true,
   daysPerHex: prefs.daysPerHex ?? 6,
+  // layer visibility — a key absent means visible. Keys: road, river, notes,
+  // labels, party, "icon:<name>". (display-only, persisted, never synced)
+  show: prefs.show ?? {},
 };
+
+function isShown(key) {
+  return state.show[key] !== false;
+}
 
 function bgColor() {
   return state.lightBg ? "#efe9dc" : "#1e1e1e";
@@ -182,30 +190,42 @@ function draw() {
   ctx.fillStyle = bgColor();
   ctx.fillRect(0, 0, w, h);
   const size = HEX_SIZE * state.scale;
+  const isDM = state.role === "dm";
+  // gather on-screen cells once; each pass draws in z-order so features and
+  // labels never get clipped by neighbouring hex fills.
+  const visible = [];
   for (const cell of state.hexes.values()) {
     const [wx, wy] = hexToPixel(cell.q, cell.r);
     const sx = wx * state.scale + state.offsetX;
     const sy = wy * state.scale + state.offsetY;
     if (sx < -size * 2 || sy < -size * 2 || sx > w + size * 2 || sy > h + size * 2) continue;
-    const fogged = state.fog && !cell.explored;
+    visible.push({ cell, sx, sy, hidden: state.fog && !cell.explored && !isDM });
+  }
+  // pass 1: terrain fills + grid outlines
+  for (const { cell, sx, sy, hidden } of visible) {
     traceHex(sx, sy, size);
-    if (fogged && state.role !== "dm") {
-      ctx.fillStyle = state.lightBg ? "#cfc8b8" : "#26262c";
-      ctx.fill();
-      outlineHex();
-      continue;
-    }
-    ctx.fillStyle = state.terrains[cell.terrain] || "#ff00ff";
+    ctx.fillStyle = hidden
+      ? (state.lightBg ? "#cfc8b8" : "#26262c")
+      : (state.terrains[cell.terrain] || "#ff00ff");
     ctx.fill();
     outlineHex();
-    if (cell.icon) {
-      const img = state.iconImages.get(cell.icon);
-      if (img && img.complete) {
-        const s = size * 1.3;
-        ctx.drawImage(img, sx - s / 2, sy - s / 2, s, s);
-      }
+  }
+  // pass 2: rivers & roads (under icons/labels so they read as terrain)
+  if (isShown("river")) drawFeaturePaths("river");
+  if (isShown("road")) drawFeaturePaths("road");
+  // pass 3: icons
+  for (const { cell, sx, sy, hidden } of visible) {
+    if (hidden || !cell.icon || !isShown("icon:" + cell.icon)) continue;
+    const img = state.iconImages.get(cell.icon);
+    if (img && img.complete) {
+      const s = size * 1.3;
+      ctx.drawImage(img, sx - s / 2, sy - s / 2, s, s);
     }
-    if (cell.note) {
+  }
+  // pass 4: note markers
+  if (isShown("notes")) {
+    for (const { cell, sx, sy, hidden } of visible) {
+      if (hidden || !cell.note) continue;
       ctx.beginPath();
       ctx.arc(sx + size * 0.5, sy - size * 0.55, Math.max(2.5, size * 0.16), 0, Math.PI * 2);
       ctx.fillStyle = "#ffd54a";
@@ -214,25 +234,30 @@ function draw() {
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-    if (cell.label && size >= 11) {
-      const fontPx = Math.max(9, Math.min(16, size * 0.42));
-      ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
-      ctx.textAlign = "center";
+  }
+  // pass 5: labels last, so a name that overflows its hex is never clipped
+  if (isShown("labels") && size >= 11) {
+    const fontPx = Math.max(9, Math.min(16, size * 0.42));
+    ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    for (const { cell, sx, sy, hidden } of visible) {
+      if (hidden || !cell.label) continue;
       ctx.lineWidth = 3;
       ctx.strokeStyle = "#000000cc";
       ctx.strokeText(cell.label, sx, sy + size * 0.92);
       ctx.fillStyle = "#f2ead9";
       ctx.fillText(cell.label, sx, sy + size * 0.92);
     }
-    if (fogged) {
-      // DM view of a hidden hex: rendered but dimmed
+  }
+  // pass 6: DM view dims hidden hexes over everything drawn on them
+  if (isDM && state.fog) {
+    for (const { cell, sx, sy } of visible) {
+      if (cell.explored) continue;
       traceHex(sx, sy, size);
       ctx.fillStyle = "#00000073";
       ctx.fill();
     }
   }
-  drawFeaturePaths("river");
-  drawFeaturePaths("road");
   if (!exporting && state.draft && state.draft.waypoints.length) {
     const committed = state.draft.committed;
     const preview = state.draft.preview || [];
@@ -282,7 +307,7 @@ function draw() {
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
-  if (state.party) {
+  if (state.party && isShown("party")) {
     const [wx, wy] = hexToPixel(state.party.q, state.party.r);
     const sx = wx * state.scale + state.offsetX;
     const sy = wy * state.scale + state.offsetY;
@@ -557,7 +582,7 @@ function connect() {
         updateFogBtn();
         toast(`Fog of war ${state.fog ? "enabled" : "disabled"}`);
       } else if (msg.op === "set_party") {
-        state.party = { q: msg.q, r: msg.r };
+        state.party = msg.clear ? null : { q: msg.q, r: msg.r };
       } else if (msg.op === "set_icon") {
         const cell = state.hexes.get(key(msg.q, msg.r));
         if (cell) {
@@ -577,6 +602,7 @@ function connect() {
         detail: {
           q: msg.q, r: msg.r, terrain: msg.terrain, icon: msg.icon,
           explored: msg.explored, enabled: msg.enabled, label: msg.label,
+          clear: msg.clear,
           kind: msg.feature ? msg.feature.kind : undefined,
         },
       });
@@ -827,11 +853,21 @@ function editAt(clientX, clientY, ev) {
     cell.explored = cell.explored ? 0 : 1;
     send({ op: "set_explored", q, r, explored: !!cell.explored });
   } else if (state.tool === "party") {
-    state.party = { q, r };
-    send({ op: "set_party", q, r });
-    toast(`Party moved to ${q},${r}`);
+    if (state.party && state.party.q === q && state.party.r === r) {
+      state.party = null;
+      send({ op: "set_party", clear: true });
+      toast("Party marker removed");
+    } else {
+      state.party = { q, r };
+      send({ op: "set_party", q, r });
+      toast(`Party moved to ${q},${r}`);
+    }
   } else if (state.tool === "remove") {
-    if (cell) {
+    // remove a road/river here first; otherwise remove the hex itself
+    const ids = featureIdsAt(q, r);
+    if (ids.length) {
+      send({ op: "remove_feature", id: ids[ids.length - 1] });
+    } else if (cell) {
       state.hexes.delete(k);
       send({ op: "remove_hex", q, r });
     }
@@ -1200,7 +1236,7 @@ function opText(e) {
     case "remove_hex": return `removed hex${at}`;
     case "set_note": return `wrote a note on${at}`;
     case "set_label": return d.label ? `named${at} "${d.label}"` : `cleared the name of${at}`;
-    case "set_party": return `moved the party to${at}`;
+    case "set_party": return d.clear ? "removed the party marker" : `moved the party to${at}`;
     case "set_explored": return `${d.explored ? "revealed" : "hid"} hex${at}`;
     case "set_fog": return `turned fog of war ${d.enabled ? "on" : "off"}`;
     case "add_feature": return `built a ${d.kind || "path"}`;
@@ -1309,6 +1345,18 @@ daysPerHex.onchange = () => {
   savePrefs();
   computeMeasure();
 };
+
+// --- layer visibility ---
+function setLayer(key, visible) {
+  if (visible) delete state.show[key];
+  else state.show[key] = false;
+  savePrefs();
+  draw();
+}
+document.querySelectorAll(".layerToggle").forEach((cb) => {
+  cb.checked = isShown(cb.dataset.layer);
+  cb.onchange = () => setLayer(cb.dataset.layer, cb.checked);
+});
 
 // --- maps switcher (item 12) ---
 const mapSelect = document.getElementById("mapSelect");
@@ -1550,6 +1598,27 @@ async function init() {
       toast(icon.name);
     };
     iconGrid.appendChild(btn);
+  }
+
+  const iconLayers = document.getElementById("iconLayers");
+  for (const icon of cfg.icons) {
+    const key = "icon:" + icon.name;
+    const row = document.createElement("label");
+    row.className = "field iconLayer";
+    const thumb = document.createElement("img");
+    thumb.src = icon.url;
+    thumb.alt = "";
+    const label = document.createElement("span");
+    label.textContent = icon.name;
+    const left = document.createElement("span");
+    left.className = "iconLayerName";
+    left.append(thumb, label);
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = isShown(key);
+    cb.onchange = () => setLayer(key, cb.checked);
+    row.append(left, cb);
+    iconLayers.appendChild(row);
   }
 
   state.offsetX = canvas.clientWidth * devicePixelRatio / 2;
